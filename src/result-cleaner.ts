@@ -28,7 +28,7 @@ export function cleanToolResultText(text: string, options: CleanerOptions = {}):
   // Check process start
   if (cleanText.includes("Process started with PID") || text.includes("Process started with PID")) {
     const lines = text.split("\n");
-    const pidLine = lines[0];
+    const pidLine = lines[0] ?? "";
     const rest = lines.slice(1).join("\n").replace(/^Initial output:\n?/, "").trim();
 
     let outputFormatted = "";
@@ -199,7 +199,9 @@ function formatGrepCodeOutput(raw: string): string {
   for (const line of lines) {
     const match = line.match(/^(\d+)([:\-])(.*)$/);
     if (match) {
-      const [, lineNum, sep, code] = match;
+      const lineNum = match[1] ?? "";
+      const sep = match[2] ?? ":";
+      const code = match[3] ?? "";
       const numFormatted = sep === ":" ? chalk.bold.yellow(`${lineNum}:`) : chalk.dim(`${lineNum}-`);
 
       let codeFormatted = code;
@@ -256,7 +258,9 @@ function formatGitStatusOutput(raw: string): string {
   for (const line of lines) {
     const match = line.match(/^(\s*)([MADCU?!]{1,2})\s+(.+)$/);
     if (match) {
-      const [, indent, status, filePath] = match;
+      const indent = match[1] ?? "";
+      const status = match[2] ?? "";
+      const filePath = match[3] ?? "";
       let statusColored = status;
       if (status.includes("M")) statusColored = chalk.bold.yellow("M");
       else if (status.includes("A")) statusColored = chalk.bold.green("A");

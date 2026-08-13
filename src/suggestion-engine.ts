@@ -46,14 +46,14 @@ export function getFuzzySuggestions(targetPath: string): PathSuggestionResult | 
   if (fs.existsSync(targetDir)) {
     try {
       const entries = fs.readdirSync(targetDir, { withFileTypes: true });
-      const baseStem = targetBase.split(".")[0].toLowerCase();
+      const baseStem = (targetBase.split(".")[0] ?? targetBase).toLowerCase();
       const ext = path.extname(targetBase).toLowerCase();
 
       const sorted = entries
         .filter((e) => !e.name.startsWith("."))
         .map((e) => {
           const eName = e.name;
-          const eStem = eName.split(".")[0].toLowerCase();
+          const eStem = (eName.split(".")[0] ?? eName).toLowerCase();
           const eExt = path.extname(eName).toLowerCase();
           const fullPath = path.join(targetDir, eName);
 

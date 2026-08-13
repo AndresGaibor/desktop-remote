@@ -50,10 +50,10 @@ export class LogParser {
     if (this.state === "AWAITING_AUTH") {
       if (line.includes("https://")) {
         const urlMatch = line.match(/(https:\/\/[^\s]+)/);
-        if (urlMatch) this.authUrl = urlMatch[1];
+        if (urlMatch?.[1]) this.authUrl = urlMatch[1];
       }
       const codeMatch = line.match(/([A-Z0-9]{4}-[A-Z0-9]{4})/);
-      if (codeMatch) {
+      if (codeMatch?.[1]) {
         this.authCode = codeMatch[1];
       }
       if (line.includes("Code expires in")) {
@@ -161,7 +161,10 @@ export class LogParser {
     // Tool call trigger
     const toolCallMatch = line.match(/^🔧\s*Received tool call\s+([a-f0-9-]+):\s*(\w+)\s*(\{[\s\S]*\})/);
     if (toolCallMatch) {
-      const [, callId, toolName, argsJsonStr] = toolCallMatch;
+      const callId = toolCallMatch[1];
+      const toolName = toolCallMatch[2];
+      const argsJsonStr = toolCallMatch[3];
+      if (!callId || !toolName || argsJsonStr === undefined) return null;
       this.toolStartTimes.set(toolName, Date.now());
       this.toolStartTimes.set(callId, Date.now());
       return { formattedText: this.formatter.formatToolCall(toolName, callId, argsJsonStr) };
@@ -170,7 +173,9 @@ export class LogParser {
     // Tool completion trigger
     const completedMatch = line.match(/^✅\s*Tool call\s+(\w+)\s+completed:\s*(.*)$/);
     if (completedMatch) {
-      const [, toolName, remainder] = completedMatch;
+      const toolName = completedMatch[1];
+      const remainder = completedMatch[2] ?? "";
+      if (!toolName) return null;
       this.pendingCompletedToolName = toolName;
       this.pendingResultLines = [];
 
@@ -204,7 +209,9 @@ export class LogParser {
     // Tool fail trigger
     const failMatch = line.match(/^❌\s*Tool call\s+(\w+)\s+failed:\s*(.*)$/);
     if (failMatch) {
-      const [, toolName, errorMsg] = failMatch;
+      const toolName = failMatch[1];
+      const errorMsg = failMatch[2] ?? "";
+      if (!toolName) return null;
       const durationMs = this.getDurationAndClear(toolName);
       this.stats.total++;
       this.stats.failed++;
@@ -221,7 +228,9 @@ export class LogParser {
     // Exec error trigger
     const execErrMatch = line.match(/^Error executing tool\s+(\w+):\s*(.*)$/);
     if (execErrMatch) {
-      const [, toolName, errorMsg] = execErrMatch;
+      const toolName = execErrMatch[1];
+      const errorMsg = execErrMatch[2] ?? "";
+      if (!toolName) return null;
       const durationMs = this.getDurationAndClear(toolName);
       this.stats.total++;
       this.stats.failed++;

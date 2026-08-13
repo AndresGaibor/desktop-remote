@@ -53,10 +53,11 @@ function extractScriptHeredoc(str: string): { before: string; interpreter: strin
   const match = str.match(regex);
   if (!match) return null;
 
-  const before = match[1].trim();
+  const before = match[1]?.trim() ?? "";
   const interpreter = match[2];
   const marker = match[3];
   const code = match[4];
+  if (!interpreter || !marker || code === undefined) return null;
   const afterIndex = match.index! + match[0].length;
   const after = str.slice(afterIndex).trim();
 
@@ -72,9 +73,10 @@ function extractFileHeredoc(str: string): { before: string; filePath: string; co
   const match = str.match(heredocRegex);
   if (!match) return null;
 
-  const before = match[1].trim();
+  const before = match[1]?.trim() ?? "";
   const filePath = match[2] || match[3];
   const content = match[4];
+  if (!filePath || content === undefined) return null;
   const afterIndex = match.index! + match[0].length;
   const after = str.slice(afterIndex).trim();
 
