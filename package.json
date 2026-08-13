@@ -1,0 +1,28 @@
+{
+  "name": "desktop-remote",
+  "version": "1.0.0",
+  "description": "Formatted CLI wrapper for @wonderwhy-er/desktop-commander remote mode",
+  "bin": {
+    "desktop-remote": "./bin/cli.ts"
+  },
+  "module": "src/index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "bun run bin/cli.ts",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@wonderwhy-er/desktop-commander": "^0.2.47",
+    "boxen": "^8.0.1",
+    "chalk": "^6.0.0",
+    "cli-highlight": "^2.1.11",
+    "commander": "^15.0.0"
+  }
+}

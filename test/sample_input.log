@@ -1,0 +1,51 @@
+[DEBUG] Verbose mode:  false
+☕ No sleep mode enabled
+🚀 Starting MCP Device...
+ - ⏳ Connecting to Local Desktop Commander MCP using: /opt/homebrew/Cellar/node/26.5.1/bin/node /private/var/folders/9f/nmpjkws115703nt6sr7y3sf40000gn/T/bunx-501-@wonderwhy-er/desktop-commander@latest/node_modules/@wonderwhy-er/desktop-commander/dist/index.js
+ - 🔌 Connected to Desktop Commander MCP
+⏳ Connecting to Remote MCP https://mcp.desktopcommander.app
+   - 🔌 Connected to Remote MCP
+💾 Found persisted session for device f0fed73a-328b-45c7-b2b3-be4e8f8c1d47
+[DEBUG] Failed to set session: Invalid Refresh Token: Already Used
+   - ⚠️ Persisted session invalid: Invalid Refresh Token: Already Used
+
+🔐 Authenticating with Remote MCP server...
+🔐 Starting device authorization flow...
+
+   - 📡 Requesting device code...
+   - ✅ Device code received
+
+📋 Please complete authentication:
+
+   1. Open this URL in your browser:
+      https://mcp.desktopcommander.app/device/verify
+
+   2. Enter this code when prompted:
+      J74Q-VQLA
+
+   Code expires in 15 minutes.
+
+   - ⏳ Waiting for authorization...
+
+   - ✅ Authorization successful!
+
+   - ✅ Device ID authenticated: f0fed73a-328b-45c7-b2b3-be4e8f8c1d47
+✅ Channel subscribed
+🔌 Device marked as online
+✅ Device ready:
+   - User:         androymartin99@gmail.com
+   - Device ID:    f0fed73a-328b-45c7-b2b3-be4e8f8c1d47
+   - Device Name:  Andress-MacBook-Air-2.local
+🔧 Received tool call 4c16033f-0cfd-429a-90b5-8ec079793aa9: list_sessions {} metadata: {"transport":"legacy","clientInfo":{"name":"openai-mcp","version":"1.0.0"},"device_app_version":null}
+✅ Tool call list_sessions completed:
+ {"content":[{"type":"text","text":"No active sessions"}]}
+🔧 Received tool call 7d3be816-140a-4be5-8c78-3bafd5345af5: start_process {"shell":"bash","command":"cd /Users/andresgaibor/code/javascript/erp_vizueta/frontend/.worktrees/erp-technical-catalog/frontend && git status --short && echo '--- test ---' && sed -n '1,180p' src/shared/data-grid/DataGrid.test.tsx && echo '--- impl ---' && sed -n '1,260p' src/shared/data-grid/DataGrid.tsx && echo '--- types ---' && sed -n '1,220p' src/shared/data-grid/DataGrid.types.ts","timeout_ms":10000} metadata: {"transport":"legacy","clientInfo":{"name":"openai-mcp","version":"1.0.0"},"device_app_version":null}
+✅ Tool call start_process completed:
+ {"content":[{"type":"text","text":"Process started with PID 68729 (shell: bash)\nInitial output:\n/Users/andresgaibor/.profile: line 1: /Users/andresgaibor/.deno/env: No such file or directory\n M src/shared/data-grid/DataGrid.test.tsx\n M src/shared/data-grid/DataGrid.types.ts\n--- test ---\nimport { expect, test } from \"bun:test\";\nimport { fireEvent, render, screen } from \"@testing-library/react\";\nimport type { ColumnDef } from \"@tanstack/react-table\";\nimport { DataGrid } from \"./DataGrid\";\nimport type { DataGridState } from \"./DataGrid.types\";\n\ntype Product = { id: string; codigoInterno: string; descripcion: string; stock: number };\n"}]}
+Error executing tool read_process_output: McpError: MCP error -32001: Request timed out
+    at McpError.fromError (file:///private/var/folders/9f/nmpjkws115703nt6sr7y3sf40000gn/T/bunx-501-@wonderwhy-er/desktop-commander@latest/node_modules/@modelcontextprotocol/sdk/dist/esm/types.js:2048:16)
+    at Timeout.timeoutHandler (file:///private/var/folders/9f/nmpjkws115703nt6sr7y3sf40000gn/T/bunx-501-@wonderwhy-er/desktop-commander@latest/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/protocol.js:713:58)
+❌ Tool call read_process_output failed: MCP error -32001: Request timed out
+🔧 Received tool call ef634ab6-9d22-4d6a-bc2c-ff1bcfbc321b: list_sessions {} metadata: {"transport":"legacy","clientInfo":{"name":"openai-mcp","version":"1.0.0"},"device_app_version":null}
+✅ Tool call list_sessions completed:
+ {"content":[{"type":"text","text":"PID: 76147, Blocked: true, Runtime: 93s"}]}
