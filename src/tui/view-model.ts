@@ -1,43 +1,102 @@
-import type { SessionSnapshot, ToolCallRow } from "../session/types";
+import type {
+  ConnectionStatus,
+  SessionSnapshot,
+  ToolCallRow,
+  ToolStatus,
+} from "../session/types";
+import type { SemanticTone } from "./theme";
 
-export function shouldUseSplitPane(width: number): boolean {
-  return width >= 100;
+export interface VisualToken {
+  glyph: string;
+  label: string;
+  tone: SemanticTone;
 }
 
-export function buildTimelineRows(snapshot: SessionSnapshot, width: number): string[] {
+export interface ActivityRowView {
+  callId: string;
+  text: string;
+  selected: boolean;
+  tone: SemanticTone;
+  status: ToolStatus;
+  target: string;
+  duration: string;
+}
+
+export function shouldUseSplitPane(_width: number): boolean {
+  return false;
+}
+export function statusVisual(status: ToolStatus): VisualToken {
+  if (status === "completed") return { glyph: "✓", label: "completed", tone: "success" };
+  if (status === "failed") return { glyph: "✕", label: "failed", tone: "danger" };
+  return { glyph: "●", label: "running", tone: "warning" };
+}
+
+export function connectionVisual(status: ConnectionStatus): VisualToken {
+  if (status === "online") return { glyph: "●", label: "online", tone: "success" };
+  if (status === "auth") return { glyph: "!", label: "auth", tone: "warning" };
+  if (status === "error") return { glyph: "✕", label: "error", tone: "danger" };
+  if (status === "offline") return { glyph: "○", label: "offline", tone: "muted" };
+  return { glyph: "●", label: "connecting", tone: "warning" };
+}
+
+export function buildActivityRows(snapshot: SessionSnapshot, width: number): ActivityRowView[] {
   const usableWidth = Math.max(30, width - 4);
   return snapshot.filteredRows.map((row) => {
-    const selected = snapshot.selectedCall?.callId === row.callId ? "›" : " ";
-    const status = statusGlyph(row.status);
-    const duration = row.durationMs === undefined ? "…" : formatDuration(row.durationMs);
+    const visual = statusVisual(row.status);
+    const selected = snapshot.selectedCall?.callId === row.callId;
     const target = summarizeTarget(row);
-    const prefix = `${selected} ${status} ${row.toolName}`;
-    const suffix = `${duration}`;
-    const middleWidth = Math.max(4, usableWidth - prefix.length - suffix.length - 4);
-    return `${prefix}  ${truncate(target, middleWidth)}  ${suffix}`;
+    const duration = row.status === "running" ? "running" : formatDuration(row.durationMs ?? 0);
+    const prefix = `${selected ? "›" : " "} ${visual.glyph} ${row.toolName}`;
+    const middleWidth = Math.max(4, usableWidth - prefix.length - duration.length - 4);
+    return {
+      callId: row.callId,
+      text: `${prefix}  ${truncate(target, middleWidth)}  ${duration}`,
+      selected,
+      tone: visual.tone,
+      status: row.status,
+      target,
+      duration,
+    };
   });
 }
 
+export function buildEmptyState(): string[] {
+  return [
+    "Waiting for tool calls…",
+    "MCP activity will appear here automatically.",
+  ];
+}
+
+export function buildContextSummary(snapshot: SessionSnapshot, width: number): string[] {
+  const row = snapshot.selectedCall;
+  if (!row) return [];
+  const visual = statusVisual(row.status);
+  const duration = row.status === "running" ? "running" : formatDuration(row.durationMs ?? 0);
+  const header = `${visual.glyph} ${row.toolName} · ${visual.label} · ${duration}`;
+  const target = summarizeTarget(row);
+  const maxWidth = Math.max(20, width - 4);
+  return target ? [truncate(header, maxWidth), truncate(target, maxWidth)] : [truncate(header, maxWidth)];
+}
+
+export function buildTimelineRows(snapshot: SessionSnapshot, width: number): string[] {
+  return buildActivityRows(snapshot, width).map((row) => row.text);
+}
 export function buildDetailLines(snapshot: SessionSnapshot, width: number): string[] {
   const row = snapshot.selectedCall;
   if (!row) return ["No tool call selected.", "Use ↑/↓ or j/k to navigate."];
 
+  const visual = statusVisual(row.status);
   const lines = [
-    `${statusGlyph(row.status)} ${row.toolName}`,
+    `${visual.glyph} ${row.toolName}`,
     `call ${row.callId}`,
-    `status ${row.status}${row.durationMs === undefined ? "" : ` · ${formatDuration(row.durationMs)}`}`,
+    `status ${visual.label}${row.durationMs === undefined ? "" : ` · ${formatDuration(row.durationMs)}`}`,
     "",
     "Arguments",
+    ...formatUnknown(row.args),
   ];
 
-  for (const line of formatUnknown(row.args)) lines.push(line);
-
-  if (row.resultText !== undefined) {
-    lines.push("", "Result", ...row.resultText.split("\n"));
-  }
-  if (row.error !== undefined) {
-    lines.push("", "Error", ...row.error.split("\n"));
-  }
+  if (row.resultText !== undefined) lines.push("", "Result", ...row.resultText.split("\n"));
+  if (row.error !== undefined) lines.push("", "Error", ...row.error.split("\n"));
 
   const maxWidth = Math.max(20, width - 4);
   return lines.map((line) => truncate(line, maxWidth));
@@ -47,23 +106,8 @@ export function buildStatusLine(snapshot: SessionSnapshot, width: number): strin
   const { counts } = snapshot;
   const filter = snapshot.statusFilter === "all" ? "" : ` · filter ${snapshot.statusFilter}`;
   const query = snapshot.query ? ` · /${snapshot.query}` : "";
-  const device = snapshot.device ? ` · ${snapshot.device.deviceName}` : "";
-  const line = [
-    snapshot.connection,
-    `${counts.total} calls`,
-    `✓ ${counts.completed}`,
-    `✕ ${counts.failed}`,
-    `running ${counts.running}`,
-  ].join(" · ") + device + filter + query;
-  return truncate(line, Math.max(20, width));
+  return truncate(`${snapshot.connection} · ${counts.total} calls · ✓ ${counts.completed} · ✕ ${counts.failed} · running ${counts.running}${filter}${query}`, Math.max(20, width));
 }
-
-function statusGlyph(status: ToolCallRow["status"]): string {
-  if (status === "completed") return "✓";
-  if (status === "failed") return "✕";
-  return "●";
-}
-
 function summarizeTarget(row: ToolCallRow): string {
   if (!isRecord(row.args)) return "";
   const path = row.args.path ?? row.args.filePath;
@@ -91,7 +135,6 @@ function formatDuration(ms: number): string {
   const seconds = Math.round((ms % 60_000) / 1000);
   return `${minutes}m ${seconds}s`;
 }
-
 function truncate(value: string, width: number): string {
   if (value.length <= width) return value;
   if (width <= 1) return value.slice(0, width);

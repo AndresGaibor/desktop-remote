@@ -1,26 +1,25 @@
 import { describe, expect, test } from "bun:test";
 import {
-  buildDetailLines,
-  buildStatusLine,
-  buildTimelineRows,
-  shouldUseSplitPane,
+  buildActivityRows,
+  buildContextSummary,
+  buildEmptyState,
+  connectionVisual,
+  statusVisual,
 } from "../../src/tui/view-model";
 import type { SessionSnapshot } from "../../src/session/types";
 
 function snapshot(): SessionSnapshot {
-  const rows = [
-    {
-      callId: "call-1",
-      toolName: "read_file",
-      args: { path: "/project/src/index.ts" },
-      metadata: {},
-      status: "completed" as const,
-      startedAt: 10,
-      completedAt: 52,
-      durationMs: 42,
-      resultText: "export const answer = 42;",
-    },
-  ];
+  const rows = [{
+    callId: "call-1",
+    toolName: "read_file",
+    args: { path: "/project/src/index.ts" },
+    metadata: {},
+    status: "completed" as const,
+    startedAt: 10,
+    completedAt: 52,
+    durationMs: 42,
+    resultText: "export const answer = 42;",
+  }];
   return {
     connection: "online",
     device: { user: "user@example.test", deviceId: "dev-1", deviceName: "mac.local" },
@@ -32,37 +31,40 @@ function snapshot(): SessionSnapshot {
     statusFilter: "all",
   };
 }
+describe("OpenCode-style TUI view model", () => {
+  test("builds a selected semantic activity row", () => {
+    const row = buildActivityRows(snapshot(), 80)[0];
 
-describe("TUI view model", () => {
-  test("builds concise timeline rows with selection and duration", () => {
-    const rows = buildTimelineRows(snapshot(), 80);
-
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toContain("read_file");
-    expect(rows[0]).toContain("42ms");
-    expect(rows[0]).toContain("index.ts");
+    expect(row?.text).toContain("✓ read_file");
+    expect(row?.text).toContain("index.ts");
+    expect(row?.text).toContain("42ms");
+    expect(row?.selected).toBe(true);
+    expect(row?.tone).toBe("success");
   });
 
-  test("builds detail lines from the selected call", () => {
-    const lines = buildDetailLines(snapshot(), 80);
-    const text = lines.join("\n");
-
-    expect(text).toContain("read_file");
-    expect(text).toContain("/project/src/index.ts");
-    expect(text).toContain("export const answer = 42;");
+  test("uses concise empty-state copy", () => {
+    expect(buildEmptyState()).toEqual([
+      "Waiting for tool calls…",
+      "MCP activity will appear here automatically.",
+    ]);
   });
 
-  test("builds a compact status footer", () => {
-    const line = buildStatusLine(snapshot(), 100);
-
-    expect(line).toContain("1 calls");
-    expect(line).toContain("✓ 1");
-    expect(line).toContain("running 0");
-    expect(line).toContain("online");
+  test("exposes semantic status and connection visuals", () => {
+    expect(statusVisual("running")).toEqual({ glyph: "●", label: "running", tone: "warning" });
+    expect(statusVisual("failed")).toEqual({ glyph: "✕", label: "failed", tone: "danger" });
+    expect(connectionVisual("online")).toEqual({ glyph: "●", label: "online", tone: "success" });
   });
 
-  test("uses split pane only when there is enough width", () => {
-    expect(shouldUseSplitPane(120)).toBe(true);
-    expect(shouldUseSplitPane(79)).toBe(false);
+  test("builds a short contextual summary independent of split panes", () => {
+    const summary = buildContextSummary(snapshot(), 120).join("\n");
+    expect(summary).toContain("read_file");
+    expect(summary).toContain("completed");
+    expect(summary).toContain("42ms");
   });
+});
+
+test("wide terminals no longer force a split pane", async () => {
+  const { shouldUseSplitPane } = await import("../../src/tui/view-model");
+  expect(shouldUseSplitPane(200)).toBe(false);
+  expect(shouldUseSplitPane(80)).toBe(false);
 });
