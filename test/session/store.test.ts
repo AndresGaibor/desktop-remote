@@ -84,3 +84,24 @@ describe("SessionStore", () => {
     expect(store.snapshot().selectedCall?.callId).toBe("b");
   });
 });
+
+
+test("SessionStore keeps official auth details for local presentation", () => {
+  const store = new SessionStore();
+  store.consume({
+    type: "auth.required",
+    url: "https://example.test/device",
+    code: "ABCD-EFGH",
+    expiresIn: "15 minutes",
+    at: 1,
+  });
+
+  expect(store.snapshot()).toMatchObject({
+    connection: "auth",
+    auth: {
+      url: "https://example.test/device",
+      code: "ABCD-EFGH",
+      expiresIn: "15 minutes",
+    },
+  });
+});

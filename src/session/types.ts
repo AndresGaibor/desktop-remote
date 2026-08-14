@@ -8,6 +8,12 @@ export interface SessionDevice {
   deviceName: string;
 }
 
+export interface SessionAuth {
+  url: string;
+  code: string;
+  expiresIn: string;
+}
+
 export interface ToolCallRow {
   callId: string;
   toolName: string;
@@ -31,6 +37,7 @@ export interface SessionCounts {
 export interface SessionSnapshot {
   connection: ConnectionStatus;
   device?: SessionDevice;
+  auth?: SessionAuth;
   rows: ToolCallRow[];
   filteredRows: ToolCallRow[];
   selectedCall?: ToolCallRow;

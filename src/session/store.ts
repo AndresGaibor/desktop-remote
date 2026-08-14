@@ -1,6 +1,7 @@
 import type { RuntimeEvent } from "../runtime/events";
 import type {
   ConnectionStatus,
+  SessionAuth,
   SessionDevice,
   SessionSnapshot,
   StatusFilter,
@@ -10,6 +11,7 @@ import type {
 export class SessionStore {
   private connection: ConnectionStatus = "starting";
   private device: SessionDevice | undefined;
+  private auth: SessionAuth | undefined;
   private readonly calls = new Map<string, ToolCallRow>();
   private readonly order: string[] = [];
   private query = "";
@@ -21,6 +23,7 @@ export class SessionStore {
   consume(event: RuntimeEvent): void {
     if (event.type === "device.ready") {
       this.connection = "online";
+      this.auth = undefined;
       this.device = {
         user: event.user,
         deviceId: event.deviceId,
@@ -31,6 +34,7 @@ export class SessionStore {
 
     if (event.type === "auth.required") {
       this.connection = "auth";
+      this.auth = { url: event.url, code: event.code, expiresIn: event.expiresIn };
       return;
     }
     if (event.type === "runtime.exited") {
@@ -117,6 +121,7 @@ export class SessionStore {
     return {
       connection: this.connection,
       device: this.device,
+      auth: this.auth,
       rows,
       filteredRows,
       selectedCall,

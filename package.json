@@ -1,7 +1,7 @@
 {
   "name": "desktop-remote",
   "version": "1.0.0",
-  "description": "Formatted CLI wrapper for @wonderwhy-er/desktop-commander remote mode",
+  "description": "Interactive TUI and local runtime supervisor for Desktop Commander Remote",
   "bin": {
     "desktop-remote": "./bin/cli.ts"
   },
@@ -10,7 +10,8 @@
   "private": true,
   "scripts": {
     "start": "bun run bin/cli.ts",
-    "test": "bun test"
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@types/bun": "latest"
@@ -19,10 +20,13 @@
     "typescript": "^5"
   },
   "dependencies": {
+    "@opentui/core": "0.5.3",
+    "@opentui/solid": "0.5.3",
     "@wonderwhy-er/desktop-commander": "^0.2.47",
     "boxen": "^8.0.1",
     "chalk": "^6.0.0",
     "cli-highlight": "^2.1.11",
-    "commander": "^15.0.0"
+    "commander": "^15.0.0",
+    "solid-js": "1.9.12"
   }
 }
