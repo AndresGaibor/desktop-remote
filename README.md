@@ -59,14 +59,20 @@ Para pruebas o wrappers personalizados:
 desktop-remote --cmd /ruta/a/otro-ejecutable remote --persist-session
 ```
 
+### Experiencia de la TUI
+
+La vista principal está inspirada en OpenCode: una sola lista de actividad domina la pantalla y el detalle no ocupa un panel lateral permanente. La fila seleccionada usa un acento cian visible además de `›`; éxito/PASS usa verde, ejecución/warnings ámbar y fallos/errores rojo.
+
+Al abrir una llamada con `Enter`, archivos TypeScript/JavaScript/Markdown y JSON reciben syntax highlighting con Tree-sitter de OpenTUI. Salidas de tests y linters resaltan `PASS`, `FAIL`, `warning`, `error` y ubicaciones `archivo:línea:columna` semánticamente.
+
 ### Controles de la TUI
 
 - `↑` / `↓` o `k` / `j`: navegar llamadas.
-- `Enter`: abrir/cerrar detalle en terminales estrechas.
+- `Enter`: abrir el detalle enfocado de la llamada seleccionada.
 - `/`: buscar por tool, call ID, argumentos, resultado o error.
 - `f`: alternar filtro `all → running → completed → failed`.
-- `?`: ayuda.
-- `Esc`: cerrar ayuda/detalle/búsqueda.
+- `?`: abrir ayuda temporal.
+- `Esc`: volver a actividad o cerrar búsqueda/ayuda.
 - `Ctrl+C`: apagado coordinado; primero Desktop Commander, luego la TUI.
 
 ## Logging estructurado
