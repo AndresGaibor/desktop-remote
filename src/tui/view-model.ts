@@ -101,11 +101,14 @@ export function buildContextSummary(snapshot: SessionSnapshot, width: number): s
   const row = snapshot.selectedCall;
   if (!row) return [];
   const visual = statusVisual(row.status);
-  const duration = row.status === "running" ? "running" : formatDuration(row.durationMs ?? 0);
-  const header = `${visual.glyph} ${row.toolName} · ${visual.label} · ${duration}`;
+  const duration = row.status === "running" ? "" : ` · ${formatDuration(row.durationMs ?? 0)}`;
+  const header = `${visual.glyph} ${row.toolName} · ${visual.label}${duration}`;
   const target = summarizeTarget(row);
   const maxWidth = Math.max(20, width - 4);
-  return target ? [truncate(header, maxWidth), truncate(target, maxWidth)] : [truncate(header, maxWidth)];
+  return [
+    ...wrapDisplayText(header, maxWidth),
+    ...(target ? wrapDisplayText(target, maxWidth) : []),
+  ];
 }
 
 export function buildTimelineRows(snapshot: SessionSnapshot, width: number): string[] {

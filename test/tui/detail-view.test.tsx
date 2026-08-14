@@ -127,3 +127,21 @@ test("renders edit_block as a readable change diff", async () => {
   expect(frame).not.toContain('"old_string"');
   setup.renderer.destroy();
 });
+test("expanded specialized detail reveals complete raw arguments", async () => {
+  const setup = await testRender(
+    () => <CallDetailView row={row({
+      status: "running",
+      completedAt: undefined,
+      durationMs: undefined,
+      resultText: undefined,
+      args: { path: "/project/src/app.ts", isUrl: false, offset: 0, length: 10 },
+    })} width={100} argumentsExpanded />,
+    { width: 100, height: 24 },
+  );
+  await setup.renderOnce();
+  const frame = setup.captureCharFrame();
+  expect(frame).toContain("Raw arguments");
+  expect(frame).toContain('"isUrl": false');
+  expect(frame).toContain('"length": 10');
+  setup.renderer.destroy();
+});

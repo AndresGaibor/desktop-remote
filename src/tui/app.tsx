@@ -1,23 +1,24 @@
-import { For, createSignal, type Accessor } from "solid-js";
+import { For, createEffect, createSignal, type Accessor } from "solid-js";
 import { useKeyboard, useTerminalDimensions } from "@opentui/solid";
 import type { SessionStore } from "../session/store";
 import type { SessionSnapshot, StatusFilter } from "../session/types";
+import { ActivityFeed } from "./activity-feed";
 import { CallDetailView } from "./detail-view";
 import {
   actionForKey,
   transitionMode,
+  updateFollowState,
+  type FollowState,
   type TuiMode,
 } from "./interaction";
 import {
-  buildActivityRows,
+  buildActivityBlocks,
   buildContextSummary,
   buildEmptyState,
+  buildSearchCounter,
   connectionVisual,
 } from "./view-model";
-import {
-  TUI_THEME,
-  toneColor,
-} from "./theme";
+import { TUI_THEME, toneColor } from "./theme";
 
 export interface DesktopRemoteAppProps {
   store: SessionStore;
@@ -30,26 +31,60 @@ const FILTERS: StatusFilter[] = ["all", "running", "completed", "failed"];
 export function DesktopRemoteApp(props: DesktopRemoteAppProps) {
   const dimensions = useTerminalDimensions();
   const [mode, setMode] = createSignal<TuiMode>("activity");
+  const [follow, setFollow] = createSignal<FollowState>({ following: true, pendingNew: 0 });
+  const [argumentsExpanded, setArgumentsExpanded] = createSignal(false);
+  let lastTotalCalls = -1;
 
   const refresh = () => props.refresh();
   const selected = () => props.snapshot().selectedCall;
-  const activityRows = () => buildActivityRows(props.snapshot(), dimensions().width);
+  const blocks = () => buildActivityBlocks(props.snapshot(), dimensions().width);
   const contextSummary = () => buildContextSummary(props.snapshot(), dimensions().width);
   const connection = () => connectionVisual(props.snapshot().connection);
   const filterLabel = () => props.snapshot().statusFilter === "all"
     ? ""
     : ` · ${props.snapshot().statusFilter}`;
 
-  const move = (delta: number) => {
+  createEffect(() => {
+    const total = props.snapshot().counts.total;
+    const previous = lastTotalCalls;
+    lastTotalCalls = total;
+    if (previous < 0) {
+      if (total > 0 && follow().following) selectNewest();
+      return;
+    }
+    if (total <= previous) return;
+    let next = follow();
+    for (let index = 0; index < total - previous; index += 1) {
+      next = updateFollowState(next, "new-call");
+    }
+    if (next.following) selectNewest();
+    else setFollow(next);
+  });
+
+  function selectNewest() {
+    props.store.selectLastFiltered();
+    refresh();
+  }
+
+  function move(delta: number) {
+    if (delta < 0) setFollow((state) => updateFollowState(state, "user-away"));
     props.store.moveSelection(delta);
     refresh();
-  };
-  const cycleFilter = () => {
+  }
+
+  function jumpToNewest() {
+    props.store.selectLastFiltered();
+    setFollow((state) => updateFollowState(state, "resume"));
+    refresh();
+  }
+
+  function cycleFilter() {
     const current = props.snapshot().statusFilter;
     const index = FILTERS.indexOf(current);
     props.store.setStatusFilter(FILTERS[(index + 1) % FILTERS.length] ?? "all");
+    if (follow().following) props.store.selectLastFiltered();
     refresh();
-  };
+  }
 
   useKeyboard((key) => {
     const action = actionForKey(key);
@@ -63,14 +98,29 @@ export function DesktopRemoteApp(props: DesktopRemoteAppProps) {
       if (action === "escape") setMode("activity");
       return;
     }
-    if (currentMode === "detail" || currentMode === "help") {
-      setMode(transitionMode(currentMode, action, selected() !== undefined));
+    if (currentMode === "detail") {
+      if (action === "toggle-arguments") {
+        setArgumentsExpanded((value) => !value);
+        return;
+      }
+      if (action === "escape") setMode("activity");
       return;
     }
+    if (currentMode === "help") {
+      if (action === "escape" || action === "toggle-help") setMode("activity");
+      return;
+    }
+
     if (action === "next") move(1);
     else if (action === "previous") move(-1);
+    else if (action === "jump-end") jumpToNewest();
     else if (action === "cycle-filter") cycleFilter();
-    else setMode(transitionMode(currentMode, action, selected() !== undefined));
+    else if (action === "open-detail" && selected()) {
+      setArgumentsExpanded(false);
+      setMode("detail");
+    } else {
+      setMode(transitionMode(currentMode, action, selected() !== undefined));
+    }
   });
 
   return (
@@ -91,10 +141,12 @@ export function DesktopRemoteApp(props: DesktopRemoteAppProps) {
           placeholder="Search tool, path or command…"
           onInput={(value) => {
             props.store.setQuery(value);
+            if (follow().following) props.store.selectLastFiltered();
             refresh();
           }}
           onSubmit={() => setMode("activity")}
         />
+        <text fg={TUI_THEME.muted}>{buildSearchCounter(props.snapshot())}</text>
       </box>
 
       <box visible={mode() !== "detail"} flexGrow={1} minHeight={5} flexDirection="column">
@@ -103,51 +155,53 @@ export function DesktopRemoteApp(props: DesktopRemoteAppProps) {
             <text><b>Tool calls</b></text>
             <text fg={TUI_THEME.muted}>{filterLabel()}</text>
           </box>
-          <text fg={TUI_THEME.muted}>{props.snapshot().filteredRows.length}</text>
+          <text fg={follow().pendingNew > 0 ? TUI_THEME.accent : TUI_THEME.muted}>
+            {follow().pendingNew > 0 ? `↓ ${follow().pendingNew} new` : props.snapshot().filteredRows.length}
+          </text>
         </box>
 
-        <scrollbox flexGrow={1} viewportCulling>
-          <For each={activityRows()}>
-            {(row) => (
-              <text
-                fg={toneColor(row.tone)}
-                bg={row.selected ? TUI_THEME.selectedBackground : undefined}
-                wrapMode="none"
-                truncate
-              >
-                {row.text}
-              </text>
-            )}
-          </For>
-          <For each={activityRows().length === 0 ? buildEmptyState() : []}>
+        <box visible={blocks().length > 0} flexGrow={1} minHeight={3}>
+          <ActivityFeed
+            blocks={blocks()}
+            following={follow().following}
+            viewportHeight={Math.max(3, dimensions().height - 9)}
+          />
+        </box>
+        <box visible={blocks().length === 0} flexGrow={1} flexDirection="column">
+          <For each={buildEmptyState()}>
             {(line, index) => (
               <text fg={index() === 0 ? TUI_THEME.text : TUI_THEME.muted}>
                 {line}
               </text>
             )}
           </For>
-        </scrollbox>
+        </box>
 
         <box
-          visible={contextSummary().length > 0}
+          visible={contextSummary().length > 0 && dimensions().height >= 18}
           height={contextSummary().length + 1}
           flexDirection="column"
         >
           <text fg={TUI_THEME.muted}>────────────────────────────────────────</text>
           <For each={contextSummary()}>
-            {(line) => <text fg={TUI_THEME.muted}>{line}</text>}
+            {(line) => <text fg={TUI_THEME.muted} wrapMode="word">{line}</text>}
           </For>
         </box>
       </box>
 
       <box visible={mode() === "detail"} flexGrow={1} minHeight={5}>
         <For each={mode() === "detail" && selected() ? [selected()!] : []}>
-          {(row) => <CallDetailView row={row} width={dimensions().width} />}
+          {(row) => (
+            <CallDetailView
+              row={row}
+              width={dimensions().width}
+              argumentsExpanded={argumentsExpanded()}
+            />
+          )}
         </For>
       </box>
-
       <text height={1} fg={TUI_THEME.muted}>
-        {footerText(mode())}
+        {footerText(mode(), follow())}
       </text>
 
       <box
@@ -178,7 +232,7 @@ export function DesktopRemoteApp(props: DesktopRemoteAppProps) {
         top={3}
         left={4}
         width={Math.max(42, Math.min(72, dimensions().width - 8))}
-        height={8}
+        height={7}
         border
         borderColor={TUI_THEME.accent}
         backgroundColor={TUI_THEME.panelBackground}
@@ -186,20 +240,21 @@ export function DesktopRemoteApp(props: DesktopRemoteAppProps) {
         paddingX={1}
         flexDirection="column"
       >
-        <text><b>↑/↓ · j/k</b> move selection</text>
-        <text><b>Enter</b> open selected call</text>
-        <text><b>/</b> search tool, path or command</text>
-        <text><b>f</b> cycle all/running/completed/failed</text>
-        <text><b>Esc</b> close detail, search or help</text>
-        <text><b>Ctrl+C</b> graceful shutdown</text>
+        <text><b>Navigate</b>  ↑/↓ · j/k · End latest</text>
+        <text><b>Inspect</b>   Enter detail · a raw args · Esc back</text>
+        <text><b>Filter</b>    / search · f status</text>
+        <text><b>Exit</b>      Ctrl+C graceful shutdown</text>
       </box>
     </box>
   );
 }
 
-function footerText(mode: TuiMode): string {
-  if (mode === "detail") return "Esc back · ? help";
+export function footerText(mode: TuiMode, follow: FollowState): string {
+  if (mode === "detail") return "Esc back · a arguments";
   if (mode === "search") return "Type to search · Enter apply · Esc close";
   if (mode === "help") return "Esc close";
-  return "↑↓ navigate · Enter details · / search · ? help";
+  if (follow.pendingNew > 0) {
+    return `↓ ${follow.pendingNew} new · End latest · ↑↓ navigate · Enter details · / search · f filter`;
+  }
+  return "↑↓ navigate · Enter details · / search · f filter · ? help";
 }

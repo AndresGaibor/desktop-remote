@@ -15,7 +15,7 @@ export const TUI_THEME = {
   danger: "#fb7185",
   muted: "#64748b",
   text: "#e2e8f0",
-  selectedBackground: "#0c4a6e",
+  selectedBackground: "#082f49",
   panelBackground: "#111827",
 } as const;
 

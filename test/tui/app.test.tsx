@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { RGBA } from "@opentui/core";
 import { testRender } from "@opentui/solid";
-import { DesktopRemoteApp } from "../../src/tui/app";
+import { DesktopRemoteApp, footerText } from "../../src/tui/app";
 import { SessionStore } from "../../src/session/store";
 import { TUI_THEME } from "../../src/tui/theme";
 
@@ -46,8 +46,7 @@ test("renders a minimal activity screen with a highlighted selection", async () 
   expect(frame).toContain("Tool calls");
   expect(frame).toContain("✓ read_file");
   expect(frame).not.toContain("Details");
-  expect(frame).toContain("↑↓ navigate · Enter details · / search · ? help");
-  expect(frame).not.toContain("f filter");
+  expect(frame).toContain("↑↓ navigate · Enter details · / search · f filter · ? help");
 
   const span = setup.captureSpans().lines.flatMap((line) => line.spans)
     .find((candidate) => candidate.text.includes("read_file"));
@@ -67,4 +66,34 @@ test("renders a concise empty state", async () => {
   expect(frame).toContain("MCP activity will appear here automatically.");
   expect(frame).not.toContain("No tool calls match the current view.");
   setup.renderer.destroy();
+});
+
+test("renders a long process target completely without ellipsis", async () => {
+  const store = new SessionStore();
+  const command = "printf BEGIN very long command with src/tui/app.tsx:42:7 warning and FINAL_TOKEN";
+  store.consume({
+    type: "tool.started",
+    callId: "long-1",
+    toolName: "start_process",
+    args: { command },
+    metadata: {},
+    startedAt: 1,
+  });
+  const setup = await testRender(
+    () => <DesktopRemoteApp store={store} snapshot={() => store.snapshot()} refresh={() => {}} onQuit={() => {}} />,
+    { width: 52, height: 20 },
+  );
+  await setup.renderOnce();
+  const frame = setup.captureCharFrame();
+  expect(frame).toContain("FINAL_TOKEN");
+  expect(frame).not.toContain("…");
+  setup.renderer.destroy();
+});
+test("builds contextual footer text for pending activity and detail", () => {
+  expect(footerText("activity", { following: false, pendingNew: 3 }))
+    .toContain("↓ 3 new · End latest");
+  expect(footerText("detail", { following: true, pendingNew: 0 }))
+    .toBe("Esc back · a arguments");
+  expect(footerText("activity", { following: true, pendingNew: 0 }))
+    .toContain("f filter · ? help");
 });
