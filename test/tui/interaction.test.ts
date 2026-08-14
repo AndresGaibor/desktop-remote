@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   actionForKey,
   transitionMode,
+  updateFollowState,
   type TuiMode,
 } from "../../src/tui/interaction";
 
@@ -15,6 +16,8 @@ describe("TUI keyboard interaction model", () => {
     expect(actionForKey({ sequence: "/" })).toBe("open-search");
     expect(actionForKey({ sequence: "?" })).toBe("toggle-help");
     expect(actionForKey({ name: "f" })).toBe("cycle-filter");
+    expect(actionForKey({ name: "end" })).toBe("jump-end");
+    expect(actionForKey({ name: "a" })).toBe("toggle-arguments");
     expect(actionForKey({ name: "c", ctrl: true })).toBe("quit");
   });
 
@@ -39,4 +42,14 @@ describe("TUI keyboard interaction model", () => {
     expect(actionForKey({ name: "x" })).toBe("none");
     expect(transitionMode("activity", "none", true)).toBe("activity");
   });
+});
+
+
+test("follow state pauses, counts new calls, and resumes", () => {
+  const paused = updateFollowState({ following: true, pendingNew: 0 }, "user-away");
+  expect(paused).toEqual({ following: false, pendingNew: 0 });
+  const pending = updateFollowState(paused, "new-call");
+  expect(updateFollowState(pending, "new-call")).toEqual({ following: false, pendingNew: 2 });
+  expect(updateFollowState({ following: false, pendingNew: 4 }, "resume"))
+    .toEqual({ following: true, pendingNew: 0 });
 });
