@@ -7,7 +7,7 @@
       "dependencies": {
         "@opentui/core": "0.5.3",
         "@opentui/solid": "0.5.3",
-        "@wonderwhy-er/desktop-commander": "^0.2.47",
+        "@wonderwhy-er/desktop-commander": "0.2.47",
         "boxen": "^8.0.1",
         "chalk": "^6.0.0",
         "cli-highlight": "^2.1.11",

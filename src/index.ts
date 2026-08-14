@@ -3,4 +3,12 @@ export { LogFormatter } from "./formatter";
 export { cleanToolResultText } from "./result-cleaner";
 export { parseShellCommand } from "./command-cleaner";
 export * from "./suggestion-engine";
-
+export * from "./runtime/events";
+export { UpstreamParser } from "./runtime/upstream-parser";
+export { DesktopCommanderRuntime } from "./runtime/desktop-commander-runtime";
+export { SessionStore } from "./session/store";
+export * from "./session/types";
+export { JsonlEventWriter, readJsonlEvents } from "./logging/jsonl";
+export { redactEvent } from "./logging/redactor";
+export { runTui, TuiSessionBridge } from "./tui/run-tui";
+export { selectCliMode } from "./cli/mode";
