@@ -2,12 +2,22 @@ import { For, createSignal, type Accessor } from "solid-js";
 import { useKeyboard, useTerminalDimensions } from "@opentui/solid";
 import type { SessionStore } from "../session/store";
 import type { SessionSnapshot, StatusFilter } from "../session/types";
+import { CallDetailView } from "./detail-view";
 import {
-  buildDetailLines,
-  buildStatusLine,
-  buildTimelineRows,
-  shouldUseSplitPane,
+  actionForKey,
+  transitionMode,
+  type TuiMode,
+} from "./interaction";
+import {
+  buildActivityRows,
+  buildContextSummary,
+  buildEmptyState,
+  connectionVisual,
 } from "./view-model";
+import {
+  TUI_THEME,
+  toneColor,
+} from "./theme";
 
 export interface DesktopRemoteAppProps {
   store: SessionStore;
@@ -17,15 +27,19 @@ export interface DesktopRemoteAppProps {
 }
 
 const FILTERS: StatusFilter[] = ["all", "running", "completed", "failed"];
-
 export function DesktopRemoteApp(props: DesktopRemoteAppProps) {
   const dimensions = useTerminalDimensions();
-  const [searchMode, setSearchMode] = createSignal(false);
-  const [showHelp, setShowHelp] = createSignal(false);
-  const [showNarrowDetail, setShowNarrowDetail] = createSignal(false);
+  const [mode, setMode] = createSignal<TuiMode>("activity");
 
-  const splitPane = () => shouldUseSplitPane(dimensions().width);
   const refresh = () => props.refresh();
+  const selected = () => props.snapshot().selectedCall;
+  const activityRows = () => buildActivityRows(props.snapshot(), dimensions().width);
+  const contextSummary = () => buildContextSummary(props.snapshot(), dimensions().width);
+  const connection = () => connectionVisual(props.snapshot().connection);
+  const filterLabel = () => props.snapshot().statusFilter === "all"
+    ? ""
+    : ` · ${props.snapshot().statusFilter}`;
+
   const move = (delta: number) => {
     props.store.moveSelection(delta);
     refresh();
@@ -38,140 +52,154 @@ export function DesktopRemoteApp(props: DesktopRemoteAppProps) {
   };
 
   useKeyboard((key) => {
-    if (key.ctrl && key.name === "c") {
+    const action = actionForKey(key);
+    const currentMode = mode();
+
+    if (action === "quit") {
       void Promise.resolve(props.onQuit());
       return;
     }
-    if (searchMode()) {
-      if (key.name === "escape") setSearchMode(false);
+    if (currentMode === "search") {
+      if (action === "escape") setMode("activity");
       return;
     }
-    if (key.name === "escape") {
-      setShowHelp(false);
-      setShowNarrowDetail(false);
+    if (currentMode === "detail" || currentMode === "help") {
+      setMode(transitionMode(currentMode, action, selected() !== undefined));
       return;
     }
-    if (key.name === "up" || key.name === "k") move(-1);
-    else if (key.name === "down" || key.name === "j") move(1);    else if (key.name === "f") cycleFilter();
-    else if (key.name === "return" || key.name === "enter") {
-      if (!splitPane()) setShowNarrowDetail((value) => !value);
-    } else if (key.sequence === "/" || key.name === "/") {
-      setSearchMode(true);
-    } else if (key.sequence === "?" || key.name === "?") {
-      setShowHelp((value) => !value);
-    }
+    if (action === "next") move(1);
+    else if (action === "previous") move(-1);
+    else if (action === "cycle-filter") cycleFilter();
+    else setMode(transitionMode(currentMode, action, selected() !== undefined));
   });
-
-  const timelineWidth = () =>
-    splitPane() ? Math.max(50, Math.floor(dimensions().width * 0.55)) : dimensions().width;
-  const detailWidth = () =>
-    splitPane() ? Math.max(38, dimensions().width - timelineWidth()) : dimensions().width;
-  const showTimeline = () => splitPane() || !showNarrowDetail();
-  const showDetail = () => splitPane() || showNarrowDetail();
 
   return (
     <box width="100%" height="100%" flexDirection="column" paddingX={1} gap={1}>
-      <box height={2} flexDirection="row" justifyContent="space-between">
-        <text fg="#7dd3fc"><b>desktop-remote</b></text>
-        <text fg="#94a3b8">
-          {props.snapshot().device?.deviceName ?? "Desktop Commander"} · {props.snapshot().connection}
-        </text>
-      </box>
-      <box
-        visible={props.snapshot().auth !== undefined}
-        border
-        borderColor="#f59e0b"
-        title="Desktop Commander authentication"
-        paddingX={1}
-        height={5}
-        flexDirection="column"
-      >
-        <text fg="#fbbf24">{props.snapshot().auth?.url ?? ""}</text>
-        <text>
-          Code: <b>{props.snapshot().auth?.code ?? ""}</b> · expires {props.snapshot().auth?.expiresIn ?? ""}
+      <box height={1} flexDirection="row" justifyContent="space-between">
+        <text fg={TUI_THEME.accent}><b>desktop-remote</b></text>
+        <text fg={toneColor(connection().tone)}>
+          {props.snapshot().device?.deviceName ?? "Desktop Commander"} · {connection().glyph} {connection().label}
         </text>
       </box>
 
-      <box
-        visible={searchMode()}
-        border
-        borderColor="#38bdf8"
-        title="Search"
-        height={3}
-        paddingX={1}
-      >
+      <box visible={mode() === "search"} height={1} flexDirection="row">
+        <text fg={TUI_THEME.accent}>/ </text>
         <input
-          focused={searchMode()}
-          width="100%"
-          value={props.snapshot().query}          placeholder="tool, path, command..."
+          focused={mode() === "search"}
+          flexGrow={1}
+          value={props.snapshot().query}
+          placeholder="Search tool, path or command…"
           onInput={(value) => {
             props.store.setQuery(value);
             refresh();
           }}
-          onSubmit={() => setSearchMode(false)}
+          onSubmit={() => setMode("activity")}
         />
       </box>
 
-      <box flexGrow={1} minHeight={5} flexDirection="row" gap={1}>
-        <box
-          visible={showTimeline()}
-          width={splitPane() ? timelineWidth() : "100%"}
-          height="100%"
-          border
-          borderColor="#334155"
-          title={`Tool calls · ${props.snapshot().statusFilter}`}
-          paddingX={1}
-          flexDirection="column"
-        >
-          <scrollbox flexGrow={1} stickyScroll stickyStart="bottom">
-            <text
-              visible={props.snapshot().filteredRows.length === 0}
-              fg="#64748b"
-            >
-              No tool calls match the current view.
-            </text>
-            <For each={buildTimelineRows(props.snapshot(), timelineWidth())}>
-              {(row) => <text wrapMode="none" truncate>{row}</text>}
-            </For>
-          </scrollbox>
+      <box visible={mode() !== "detail"} flexGrow={1} minHeight={5} flexDirection="column">
+        <box height={1} flexDirection="row" justifyContent="space-between">
+          <box flexDirection="row">
+            <text><b>Tool calls</b></text>
+            <text fg={TUI_THEME.muted}>{filterLabel()}</text>
+          </box>
+          <text fg={TUI_THEME.muted}>{props.snapshot().filteredRows.length}</text>
         </box>
 
+        <scrollbox flexGrow={1} viewportCulling>
+          <For each={activityRows()}>
+            {(row) => (
+              <text
+                fg={toneColor(row.tone)}
+                bg={row.selected ? TUI_THEME.selectedBackground : undefined}
+                wrapMode="none"
+                truncate
+              >
+                {row.text}
+              </text>
+            )}
+          </For>
+          <For each={activityRows().length === 0 ? buildEmptyState() : []}>
+            {(line, index) => (
+              <text fg={index() === 0 ? TUI_THEME.text : TUI_THEME.muted}>
+                {line}
+              </text>
+            )}
+          </For>
+        </scrollbox>
+
         <box
-          visible={showDetail()}
-          width={splitPane() ? detailWidth() : "100%"}
-          height="100%"
-          border
-          borderColor="#475569"
-          title="Details"
-          paddingX={1}
+          visible={contextSummary().length > 0}
+          height={contextSummary().length + 1}
           flexDirection="column"
         >
-          <scrollbox flexGrow={1}>
-            <For each={buildDetailLines(props.snapshot(), detailWidth())}>
-              {(line) => <text wrapMode="none" truncate>{line || " "}</text>}
-            </For>
-          </scrollbox>
+          <text fg={TUI_THEME.muted}>────────────────────────────────────────</text>
+          <For each={contextSummary()}>
+            {(line) => <text fg={TUI_THEME.muted}>{line}</text>}
+          </For>
         </box>
       </box>
 
+      <box visible={mode() === "detail"} flexGrow={1} minHeight={5}>
+        <For each={mode() === "detail" && selected() ? [selected()!] : []}>
+          {(row) => <CallDetailView row={row} width={dimensions().width} />}
+        </For>
+      </box>
+
+      <text height={1} fg={TUI_THEME.muted}>
+        {footerText(mode())}
+      </text>
+
       <box
-        visible={showHelp()}
+        visible={props.snapshot().auth !== undefined}
+        position="absolute"
+        zIndex={100}
+        top={2}
+        left={4}
+        width={Math.max(40, Math.min(76, dimensions().width - 8))}
+        height={6}
         border
-        borderColor="#64748b"        title="Help"
-        height={5}
+        borderColor={TUI_THEME.warning}
+        backgroundColor={TUI_THEME.panelBackground}
+        title="Authentication required"
         paddingX={1}
         flexDirection="column"
       >
-        <text>↑/↓ or j/k  navigate · Enter  details · /  search · f  filter</text>
-        <text>?  toggle help · Esc  close panel/search · Ctrl+C  graceful quit</text>
+        <text fg={TUI_THEME.warning}>Complete Desktop Commander authentication</text>
+        <text fg={TUI_THEME.text}>{props.snapshot().auth?.url ?? ""}</text>
+        <text fg={TUI_THEME.warning}>Code: <b>{props.snapshot().auth?.code ?? ""}</b></text>
+        <text fg={TUI_THEME.muted}>Expires {props.snapshot().auth?.expiresIn ?? ""}</text>
       </box>
 
-      <box height={2} flexDirection="column">
-        <text fg="#94a3b8">{buildStatusLine(props.snapshot(), dimensions().width - 2)}</text>
-        <text fg="#64748b">
-          ↑↓ navigate · Enter details · / search · f filter · ? help · Ctrl+C quit
-        </text>
+      <box
+        visible={mode() === "help"}
+        position="absolute"
+        zIndex={110}
+        top={3}
+        left={4}
+        width={Math.max(42, Math.min(72, dimensions().width - 8))}
+        height={8}
+        border
+        borderColor={TUI_THEME.accent}
+        backgroundColor={TUI_THEME.panelBackground}
+        title="Keyboard shortcuts"
+        paddingX={1}
+        flexDirection="column"
+      >
+        <text><b>↑/↓ · j/k</b> move selection</text>
+        <text><b>Enter</b> open selected call</text>
+        <text><b>/</b> search tool, path or command</text>
+        <text><b>f</b> cycle all/running/completed/failed</text>
+        <text><b>Esc</b> close detail, search or help</text>
+        <text><b>Ctrl+C</b> graceful shutdown</text>
       </box>
     </box>
   );
+}
+
+function footerText(mode: TuiMode): string {
+  if (mode === "detail") return "Esc back · ? help";
+  if (mode === "search") return "Type to search · Enter apply · Esc close";
+  if (mode === "help") return "Esc close";
+  return "↑↓ navigate · Enter details · / search · ? help";
 }
