@@ -105,3 +105,13 @@ test("SessionStore keeps official auth details for local presentation", () => {
     },
   });
 });
+
+
+test("selectLastFiltered jumps to the newest visible call", () => {
+  const store = new SessionStore();
+  store.consume(started("a"));
+  store.consume(started("b"));
+  store.consume(started("c"));
+  store.selectLastFiltered();
+  expect(store.snapshot().selectedCall?.callId).toBe("c");
+});

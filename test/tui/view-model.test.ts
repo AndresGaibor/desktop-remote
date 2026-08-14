@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
+  buildActivityBlocks,
   buildActivityRows,
   buildContextSummary,
   buildEmptyState,
+  buildSearchCounter,
   connectionVisual,
   statusVisual,
 } from "../../src/tui/view-model";
@@ -67,4 +69,25 @@ test("wide terminals no longer force a split pane", async () => {
   const { shouldUseSplitPane } = await import("../../src/tui/view-model");
   expect(shouldUseSplitPane(200)).toBe(false);
   expect(shouldUseSplitPane(80)).toBe(false);
+});
+
+
+test("wraps long activity targets without ellipsis", () => {
+  const base = snapshot();
+  const command = "printf PASS tui-live.test.ts warning src/tui/app.tsx:42:7 Live warning error src/tui/app.tsx:57:3 Live error";
+  const row = { ...base.rows[0]!, toolName: "start_process", args: { command } };
+  const custom = { ...base, rows: [row], filteredRows: [row], selectedCall: row };
+  const rendered = buildActivityBlocks(custom, 44)[0]?.lines.join("\n") ?? "";
+  const normalized = rendered.replace(/\s+/g, " ");
+  expect(normalized).toContain("src/tui/app.tsx:57:3 Live error");
+  expect(rendered).not.toContain("…");
+});
+
+test("builds search match counter inside the active status filter", () => {
+  const base = snapshot();
+  const rows = Array.from({ length: 7 }, (_, index) => ({
+    ...base.rows[0]!, callId: `call-${index}`, status: index < 4 ? "completed" as const : "failed" as const,
+  }));
+  const custom = { ...base, rows, filteredRows: rows.slice(0, 3), selectedCall: rows[0], statusFilter: "completed" as const };
+  expect(buildSearchCounter(custom)).toBe("3 / 4");
 });

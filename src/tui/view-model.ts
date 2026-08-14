@@ -22,6 +22,16 @@ export interface ActivityRowView {
   duration: string;
 }
 
+export interface ActivityBlockView {
+  callId: string;
+  selected: boolean;
+  tone: SemanticTone;
+  status: ToolStatus;
+  lines: string[];
+  target: string;
+  duration: string;
+}
+
 export function shouldUseSplitPane(_width: number): boolean {
   return false;
 }
@@ -37,6 +47,26 @@ export function connectionVisual(status: ConnectionStatus): VisualToken {
   if (status === "error") return { glyph: "✕", label: "error", tone: "danger" };
   if (status === "offline") return { glyph: "○", label: "offline", tone: "muted" };
   return { glyph: "●", label: "connecting", tone: "warning" };
+}
+
+export function buildActivityBlocks(snapshot: SessionSnapshot, width: number): ActivityBlockView[] {
+  const contentWidth = Math.max(12, width - 8);
+  return snapshot.filteredRows.map((row) => {
+    const visual = statusVisual(row.status);
+    const selected = snapshot.selectedCall?.callId === row.callId;
+    const target = summarizeTarget(row);
+    const duration = row.status === "running" ? "running" : formatDuration(row.durationMs ?? 0);
+    const lines = [`${selected ? "›" : " "} ${visual.glyph} ${row.toolName} · ${duration}`];
+    if (target) lines.push(...wrapDisplayText(target, contentWidth).map((line) => `    ${line}`));
+    return { callId: row.callId, selected, tone: visual.tone, status: row.status, lines, target, duration };
+  });
+}
+
+export function buildSearchCounter(snapshot: SessionSnapshot): string {
+  const eligible = snapshot.statusFilter === "all"
+    ? snapshot.rows
+    : snapshot.rows.filter((row) => row.status === snapshot.statusFilter);
+  return `${snapshot.filteredRows.length} / ${eligible.length}`;
 }
 
 export function buildActivityRows(snapshot: SessionSnapshot, width: number): ActivityRowView[] {
@@ -135,6 +165,23 @@ function formatDuration(ms: number): string {
   const seconds = Math.round((ms % 60_000) / 1000);
   return `${minutes}m ${seconds}s`;
 }
+function wrapDisplayText(value: string, width: number): string[] {
+  const lines: string[] = [];
+  for (const physicalLine of value.split("\n")) {
+    let remaining = physicalLine;
+    if (!remaining) { lines.push(""); continue; }
+    while (remaining.length > width) {
+      const window = remaining.slice(0, width + 1);
+      const space = window.lastIndexOf(" ");
+      const cut = space >= Math.floor(width / 2) ? space : width;
+      lines.push(remaining.slice(0, cut));
+      remaining = remaining.slice(cut + (space === cut ? 1 : 0));
+    }
+    lines.push(remaining);
+  }
+  return lines;
+}
+
 function truncate(value: string, width: number): string {
   if (value.length <= width) return value;
   if (width <= 1) return value.slice(0, width);

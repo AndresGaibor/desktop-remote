@@ -91,6 +91,11 @@ export class SessionStore {
     this.ensureSelection();
   }
 
+  selectLastFiltered(): void {
+    const rows = this.getFilteredRows();
+    this.selectedCallId = rows.at(-1)?.callId;
+  }
+
   moveSelection(delta: number): void {
     const rows = this.getFilteredRows();
     if (rows.length === 0) {
