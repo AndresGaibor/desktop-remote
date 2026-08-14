@@ -156,7 +156,7 @@ For `write_file`, the detail view shows destination path, write mode, and a dedi
 
 For `edit_block`, the detail view shows the target path and a readable change preview. Text replacements render as a compact diff with removed content prefixed by `-` and replacement content prefixed by `+`; unchanged context remains muted when useful.
 
-For `read_file`, the path/range remains concise metadata and the returned file content remains the primary result. For `start_process`, the command is visually separated from process output so the user can distinguish what was executed from what it produced.
+For `read_file`, raw argument JSON is replaced by concise metadata: path, source (`Local file` or `URL`) and a human-readable range such as `lines 1–24` or `last 20 lines`. While the call is running, the content area shows `Reading…`. When complete, the returned file body is shown under `Content` with syntax highlighting inferred from the path; Desktop Commander wrapper metadata is parsed away only for presentation, while the original event payload remains untouched. If the wrapper cannot be recognized safely, the raw result is shown unchanged. For `start_process`, shell, command and timeout are separated from process output so the user can distinguish what was executed from what it produced.
 Specialized argument content is available as soon as the `tool.started` event arrives. A running `write_file` or `edit_block` can therefore be opened immediately to inspect what is being written or changed before completion.
 
 Unknown tools keep the generic argument/result renderer, so specialized presentation never blocks support for newly added Desktop Commander tools.
@@ -165,6 +165,7 @@ Additional tests cover:
 
 - `write_file` extracts path, mode and complete content without losing lines;
 - `edit_block` produces a readable removed/added diff from its arguments;
+- `read_file` translates source/range metadata and extracts wrapped result content without mutating the event;
 - specialized content is available for running calls before a result exists;
 - unknown tools fall back to generic arguments and result rendering.
 
@@ -175,6 +176,6 @@ This pass does not add a command palette, mouse-first navigation, custom themes,
 
 A long `start_process` command is readable in full from the activity feed without entering detail or seeing `…`. Incoming calls behave like a stable terminal feed: they auto-follow only when appropriate and never pull the user away from older activity being inspected.
 
-The focused detail gives more vertical space to the result than to arguments, while complete arguments remain one keypress away. `write_file` shows the exact content being written, and `edit_block` shows a readable change diff instead of opaque raw JSON.
+The focused detail gives more vertical space to the result than to arguments, while complete raw arguments remain one keypress away. `write_file` shows the exact content being written, `edit_block` shows a readable change diff, and `read_file` shows human-readable source/range metadata plus the returned file body instead of opaque raw JSON.
 
 Search, filters, help and status remain discoverable without permanently consuming screen space. The resulting interface should feel denser and more polished than the current version while preserving its low-noise OpenCode-style hierarchy.

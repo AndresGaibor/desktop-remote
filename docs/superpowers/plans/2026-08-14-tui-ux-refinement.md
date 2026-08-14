@@ -24,7 +24,7 @@
 - Modify `src/tui/view-model.ts`: replace one-line truncated rows with logical multi-line activity blocks and search counters.
 - Create `src/tui/activity-feed.tsx`: render logical call blocks, selected-background continuation lines, and OpenTUI sticky scrolling.
 - Modify `src/tui/interaction.ts`: add `End`, argument toggle, and pure follow-state transitions.
-- Create `src/tui/tool-detail.ts`: extract tool-specific write/edit presentations without changing event data.
+- Create `src/tui/tool-detail.ts`: extract tool-specific read/write/edit/process presentations without changing event data.
 - Modify `src/tui/detail-view.tsx`: prioritize Result, collapse Arguments, render Content/diff presentations.
 - Modify `src/tui/app.tsx`: compose the feed, follow state, search counter, and contextual footer/help.
 - Modify/add focused tests under `test/session/` and `test/tui/`.
@@ -126,8 +126,9 @@ git commit -m "feat: add stable tui activity follow"
 - Create: `test/tui/tool-detail.test.ts`
 - Modify: `test/tui/detail-view.test.tsx`
 **Interfaces:**
-- Produces: `ToolDetailPresentation { kind: "generic" | "write" | "edit"; path?; mode?; content?; filetype?; diffLines? }`.
-- Produces: `buildToolDetailPresentation(row): ToolDetailPresentation` without mutating `row.args`.
+- Produces: `ToolDetailPresentation { kind: "generic" | "read" | "write" | "edit" | "process"; path?; mode?; content?; filetype?; diffLines?; fields }`.
+- Produces: `buildToolDetailPresentation(row): ToolDetailPresentation` without mutating `row.args` or `row.resultText`.
+- `read_file` maps `isUrl`, `offset`, and `length` to readable fields and extracts the file body from recognized Desktop Commander result wrappers; unknown wrapper shapes fall back to the raw result.
 - `CallDetailView` gains `argumentsExpanded: boolean`; collapsed arguments show at most three lines plus `[a expand]`, expanded arguments show all lines.
 
 - [ ] **Step 1: Write failing tool-detail tests**
@@ -139,9 +140,16 @@ expect(write.content).toContain("export function render");
 expect(write.filetype).toBe("typescript");
 const edit = buildToolDetailPresentation(editBlockRow);
 expect(edit.diffLines).toEqual(expect.arrayContaining(["- old value", "+ new value"]));
+const read = buildToolDetailPresentation(readFileRow);
+expect(read).toMatchObject({ kind: "read", path: "/project/src/app.ts" });
+expect(read.fields).toEqual(expect.arrayContaining([
+  { label: "Source", value: "Local file" },
+  { label: "Range", value: "lines 1–24" },
+]));
+expect(read.content).toContain("export const app");
 ```
 
-Render tests verify collapsed arguments hide the fourth JSON line, expanded arguments reveal it, `Content` appears for `write_file`, and `Changes` appears for `edit_block` even when status is `running`.
+Render tests verify collapsed raw arguments hide verbose JSON, expanded arguments reveal it, `Content to write` appears for `write_file`, `Changes` appears for `edit_block`, `Command` appears for `start_process`, and `read_file` shows `Reading…` while running then `Content` when complete.
 
 - [ ] **Step 2: Verify RED**
 
