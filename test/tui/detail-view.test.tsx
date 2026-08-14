@@ -59,3 +59,71 @@ test("colors test and lint diagnostics semantically", async () => {
   expect(error?.fg.equals(RGBA.fromHex(TUI_THEME.danger))).toBe(true);
   setup.renderer.destroy();
 });
+
+test("renders running read_file as readable metadata instead of raw JSON", async () => {
+  const setup = await testRender(
+    () => <CallDetailView row={row({
+      status: "running",
+      completedAt: undefined,
+      durationMs: undefined,
+      resultText: undefined,
+      args: { path: "/project/src/app.ts", isUrl: false, offset: 0, length: 10 },
+    })} width={100} argumentsExpanded={false} />,
+    { width: 100, height: 22 },
+  );
+  await setup.renderOnce();
+  const frame = setup.captureCharFrame();
+  expect(frame).toContain("Local file");
+  expect(frame).toContain("lines 1–10");
+  expect(frame).toContain("Reading…");
+  expect(frame).not.toContain('"isUrl"');
+  setup.renderer.destroy();
+});
+test("renders write_file content directly while running", async () => {
+  const setup = await testRender(
+    () => <CallDetailView row={row({
+      toolName: "write_file",
+      status: "running",
+      completedAt: undefined,
+      durationMs: undefined,
+      resultText: undefined,
+      args: {
+        path: "/project/src/app.ts",
+        mode: "append",
+        content: "export const written = true;\nexport default written;",
+      },
+    })} width={100} argumentsExpanded={false} />,
+    { width: 100, height: 22 },
+  );
+  await setup.renderOnce();
+  await setup.waitForVisualIdle();
+  const frame = setup.captureCharFrame();
+  expect(frame).toContain("Content to write");
+  expect(frame).toContain("export const written = true;");
+  expect(frame).not.toContain('"content"');
+  setup.renderer.destroy();
+});
+test("renders edit_block as a readable change diff", async () => {
+  const setup = await testRender(
+    () => <CallDetailView row={row({
+      toolName: "edit_block",
+      status: "running",
+      completedAt: undefined,
+      durationMs: undefined,
+      resultText: undefined,
+      args: {
+        file_path: "/project/src/app.ts",
+        old_string: "const oldValue = true;",
+        new_string: "const newValue = true;",
+      },
+    })} width={100} argumentsExpanded={false} />,
+    { width: 100, height: 22 },
+  );
+  await setup.renderOnce();
+  const frame = setup.captureCharFrame();
+  expect(frame).toContain("Changes");
+  expect(frame).toContain("- const oldValue = true;");
+  expect(frame).toContain("+ const newValue = true;");
+  expect(frame).not.toContain('"old_string"');
+  setup.renderer.destroy();
+});
