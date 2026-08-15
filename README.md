@@ -61,20 +61,23 @@ desktop-remote --cmd /ruta/a/otro-ejecutable remote --persist-session
 
 ### Experiencia de la TUI
 
-La vista principal está inspirada en OpenCode: una sola lista de actividad domina la pantalla y el detalle no ocupa un panel lateral permanente. Comandos y rutas largas se envuelven en varias líneas sin `…`; la selección cubre todo el bloque visual. Mientras sigues la actividad más reciente, el feed permanece abajo automáticamente; si subes a revisar llamadas antiguas, el seguimiento se pausa y aparece `↓ N new` hasta volver al final con `End`.
+La vista principal funciona como un feed operativo en vivo: una sola lista de actividad domina la pantalla y el call más reciente queda seleccionado y visible automáticamente. Comandos y rutas largas se envuelven en varias líneas sin `…`; la selección cubre todo el bloque visual. Puedes seleccionar temporalmente una llamada antigua con teclado o click, pero la próxima llamada MCP nueva devuelve la selección al trabajo más reciente. `End` fuerza ese mismo estado de latest + auto-scroll.
 
-Al abrir una llamada con `Enter`, el detalle se adapta a la tool. `read_file` muestra origen/rango y el contenido leído; `write_file` enseña exactamente el contenido que se está escribiendo; `edit_block` presenta un diff `- / +`; `start_process` separa Command de Output. El JSON crudo queda oculto por defecto y se puede mostrar con `a`. TypeScript/JavaScript/Markdown y JSON usan highlighting de OpenTUI, y tests/linters resaltan `PASS`, `FAIL`, `warning`, `error` y ubicaciones `archivo:línea:columna` semánticamente.
+El mouse usa eventos nativos de OpenTUI: un click selecciona el call completo, incluso si ocupa varias líneas, y doble click abre Detail. Al abrir una llamada con doble click o `Enter`, la inspección se congela en ese call aunque sigan llegando llamadas nuevas; `↓ N new` muestra cuántas aparecieron durante la inspección. `Esc` o `←` vuelve a Activity, selecciona el último call visible y reactiva el seguimiento.
+
+El detalle se adapta a la tool. `read_file` muestra origen/rango y el contenido leído; `write_file` enseña exactamente el contenido que se está escribiendo; `edit_block` presenta un diff `- / +`; `start_process` separa Command de Output. El JSON crudo queda oculto por defecto y se puede mostrar con `a`. TypeScript/JavaScript/Markdown y JSON usan highlighting de OpenTUI, y tests/linters resaltan `PASS`, `FAIL`, `warning`, `error` y ubicaciones `archivo:línea:columna` semánticamente.
 
 ### Controles de la TUI
 
-- `↑` / `↓` o `k` / `j`: navegar llamadas y pausar auto-follow al subir.
-- `End`: saltar a la llamada más reciente, reactivar auto-follow y limpiar `↓ N new`.
-- `Enter`: abrir el detalle enfocado de la llamada seleccionada.
+- `↑` / `↓` o `k` / `j`: navegar llamadas sin desactivar el seguimiento de nuevos calls.
+- Click: seleccionar una llamada completa. Doble click: abrir Detail.
+- `End`: saltar a la llamada más reciente y forzar auto-scroll al final.
+- `Enter`: abrir Detail de la llamada seleccionada y congelar esa inspección.
+- `Esc` o `←`: salir de Detail y volver directamente al último call.
 - `a`: expandir/ocultar argumentos crudos dentro del detalle.
 - `/`: buscar por tool, call ID, argumentos, resultado o error; la búsqueda muestra coincidencias `N / total`.
 - `f`: alternar filtro `all → running → completed → failed`.
 - `?`: abrir ayuda temporal.
-- `Esc`: volver a actividad o cerrar búsqueda/ayuda.
 - `Ctrl+C`: apagado coordinado; primero Desktop Commander, luego la TUI.
 
 ## Logging estructurado

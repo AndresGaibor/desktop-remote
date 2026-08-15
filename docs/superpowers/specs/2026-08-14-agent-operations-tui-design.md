@@ -19,7 +19,9 @@ It will not implement a second MCP transport, remote protocol, authentication ch
 
 The UI must not pretend it can replay arbitrary MCP calls when the official supervised process does not expose such an execution surface.
 
-Local presentation and interaction may be richer, but MCP transport ownership stays upstream.## Activity mode
+Local presentation and interaction may be richer, but MCP transport ownership stays upstream.
+
+## Activity mode
 
 Activity is a live feed ordered oldest to newest, with new calls appended at the bottom.
 
@@ -37,7 +39,9 @@ Short rows stay compact. Long commands, paths, targets, and summaries wrap natur
 
 The current active filter remains visible near the `Tool calls` heading. Search mode displays the live match position/count, for example `3 / 11`.
 
-The footer is contextual and only shows shortcuts that are useful in the current mode.## Mouse interaction
+The footer is contextual and only shows shortcuts that are useful in the current mode.
+
+## Mouse interaction
 
 OpenTUI native mouse events are used; no terminal-coordinate parsing is implemented by `desktop-remote`.
 
@@ -61,7 +65,9 @@ While Detail is frozen, a discreet `↓ N new` indicator reports calls that star
 1. selects the newest call that matches the current filter/search context;
 2. scrolls that call into view at the bottom;
 3. clears the pending-new counter;
-4. re-enables live-follow.## Detail presentation
+4. re-enables live-follow.
+
+## Detail presentation
 
 Detail remains tool-aware rather than exposing raw serialized arguments as the primary UI.
 
@@ -102,7 +108,9 @@ The UI should model these concepts explicitly rather than deriving them from inc
 
 Activity selection follows newest-call starts automatically. Detail selection is immutable until Back.
 
-The scrollbox should use native sticky-bottom/`scrollChildIntoView` behavior where possible. Selection state remains the source of truth; raw terminal row offsets must not become application state.## Testing strategy
+The scrollbox should use native sticky-bottom/`scrollChildIntoView` behavior where possible. Selection state remains the source of truth; raw terminal row offsets must not become application state.
+
+## Testing strategy
 
 Implementation follows TDD with pure interaction/state helpers tested separately from OpenTUI rendering.
 
