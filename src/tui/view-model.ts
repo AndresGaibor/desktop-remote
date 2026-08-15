@@ -52,14 +52,16 @@ export function connectionVisual(status: ConnectionStatus): VisualToken {
 
 export function buildActivityBlocks(snapshot: SessionSnapshot, width: number): ActivityBlockView[] {
   const contentWidth = Math.max(12, width - 8);
+  const now = Date.now();
   return snapshot.filteredRows.map((row) => {
     const visual = statusVisual(row.status);
     const selected = snapshot.selectedCall?.callId === row.callId;
     const target = summarizeTarget(row);
-    const duration = row.status === "running" ? "running" : formatDuration(row.durationMs ?? 0);
-    const lines = [`${selected ? "›" : " "} ${visual.glyph} ${row.toolName} · ${duration}`];
+    const duration = formatDuration(row.durationMs ?? (row.status === "running" ? now - row.startedAt : 0));
+    const runningLabel = row.status === "running" ? `${duration} ●` : duration;
+    const lines = [`${selected ? "›" : " "} ${visual.glyph} ${row.toolName} · ${runningLabel}`];
     if (target) lines.push(...wrapDisplayText(target, contentWidth).map((line) => `    ${line}`));
-    return { callId: row.callId, toolName: row.toolName, selected, tone: visual.tone, status: row.status, lines, target, duration };
+    return { callId: row.callId, toolName: row.toolName, selected, tone: visual.tone, status: row.status, lines, target, duration: runningLabel };
   });
 }
 
@@ -72,21 +74,23 @@ export function buildSearchCounter(snapshot: SessionSnapshot): string {
 
 export function buildActivityRows(snapshot: SessionSnapshot, width: number): ActivityRowView[] {
   const usableWidth = Math.max(30, width - 4);
+  const now = Date.now();
   return snapshot.filteredRows.map((row) => {
     const visual = statusVisual(row.status);
     const selected = snapshot.selectedCall?.callId === row.callId;
     const target = summarizeTarget(row);
-    const duration = row.status === "running" ? "running" : formatDuration(row.durationMs ?? 0);
+    const duration = formatDuration(row.durationMs ?? (row.status === "running" ? now - row.startedAt : 0));
+    const runningLabel = row.status === "running" ? `${duration} ●` : duration;
     const prefix = `${selected ? "›" : " "} ${visual.glyph} ${row.toolName}`;
-    const middleWidth = Math.max(4, usableWidth - prefix.length - duration.length - 4);
+    const middleWidth = Math.max(4, usableWidth - prefix.length - runningLabel.length - 4);
     return {
       callId: row.callId,
-      text: `${prefix}  ${truncate(target, middleWidth)}  ${duration}`,
+      text: `${prefix}  ${truncate(target, middleWidth)}  ${runningLabel}`,
       selected,
       tone: visual.tone,
       status: row.status,
       target,
-      duration,
+      duration: runningLabel,
     };
   });
 }
@@ -102,7 +106,8 @@ export function buildContextSummary(snapshot: SessionSnapshot, width: number): s
   const row = snapshot.selectedCall;
   if (!row) return [];
   const visual = statusVisual(row.status);
-  const duration = row.status === "running" ? "" : ` · ${formatDuration(row.durationMs ?? 0)}`;
+  const elapsed = row.status === "running" ? formatDuration(Date.now() - row.startedAt) : "";
+  const duration = row.durationMs !== undefined ? ` · ${formatDuration(row.durationMs)}` : elapsed ? ` · ${elapsed} ●` : "";
   const header = `${visual.glyph} ${row.toolName} · ${visual.label}${duration}`;
   const target = summarizeTarget(row);
   const maxWidth = Math.max(20, width - 4);

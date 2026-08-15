@@ -33,7 +33,7 @@ export function CallDetailView(props: CallDetailViewProps) {
     <box width="100%" height="100%" flexDirection="column" gap={1}>
       <box height={1} flexDirection="row" justifyContent="space-between">
         <text><b>Call details</b></text>
-        <text fg={TUI_THEME.muted}>Esc back</text>
+        <text fg={TUI_THEME.muted}>Esc/← back</text>
       </box>
 
       <box height={2} flexDirection="column">
@@ -41,25 +41,29 @@ export function CallDetailView(props: CallDetailViewProps) {
           {visual().glyph} <b>{props.row.toolName}</b> · {visual().label}
         </text>
         <text fg={TUI_THEME.muted}>
-          {shortCallId(props.row.callId)} · {formatDuration(props.row.durationMs)}
+          {shortCallId(props.row.callId)} · {formatDuration(props.row.durationMs, props.row.startedAt)}
         </text>
       </box>
 
       <box visible={specialized()} flexDirection="column">
-        <text visible={tool().path !== undefined} fg={TUI_THEME.muted}>Path</text>
-        <text visible={tool().path !== undefined} fg={TUI_THEME.accent} wrapMode="word">
-          {tool().path ?? ""}
-        </text>
+        <box visible={tool().path !== undefined} flexDirection="column">
+          <text fg={TUI_THEME.muted}>Path</text>
+          <text fg={TUI_THEME.accent} wrapMode="word">
+            {tool().path ?? ""}
+          </text>
+        </box>
         <For each={tool().fields}>
           {(field) => (
-            <text wrapMode="word">
-              <span>{field.label}</span> <span>{field.value}</span>
-            </text>
+            <box flexDirection="row" flexShrink={0}>
+              <text fg={TUI_THEME.muted}>{field.label}:</text>
+              <text fg={TUI_THEME.text} wrapMode="word" flexGrow={1}>{` ${field.value}`}</text>
+            </box>
           )}
         </For>
-        <text visible={tool().mode !== undefined}>
-          Mode {tool().mode ?? ""}
-        </text>
+        <box visible={tool().mode !== undefined} flexDirection="row" flexShrink={0}>
+          <text fg={TUI_THEME.muted}>Mode:</text>
+          <text fg={TUI_THEME.text}>{` ${tool().mode ?? ""}`}</text>
+        </box>
       </box>
       <box
         visible={!specialized() || props.argumentsExpanded === true}
@@ -76,7 +80,7 @@ export function CallDetailView(props: CallDetailViewProps) {
           visible={!props.argumentsExpanded && rawArgs().length > 3}
           fg={TUI_THEME.muted}
         >
-          [a expand]
+          Press 'a' to expand all arguments
         </text>
       </box>
 
@@ -84,7 +88,7 @@ export function CallDetailView(props: CallDetailViewProps) {
         visible={specialized() && props.argumentsExpanded !== true}
         fg={TUI_THEME.muted}
       >
-        [a raw args]
+        Press 'a' to view raw arguments
       </text>
 
       <ToolPrimaryContent row={props.row} tool={tool()} detail={detail()} />
@@ -149,7 +153,11 @@ function ToolPrimaryContent(props: ToolPrimaryContentProps) {
         <text fg={TUI_THEME.text} wrapMode="word">
           {props.tool.content ?? ""}
         </text>
-        <ResultPane detail={props.detail} title="Output" />
+        <ResultPane
+          detail={props.detail}
+          title="Output"
+          isRunning={props.row.status === "running"}
+        />
       </box>
 
       <box visible={isGeneric()} flexGrow={1} minHeight={3}>
@@ -193,14 +201,23 @@ function ContentPane(props: ContentPaneProps) {
 interface ResultPaneProps {
   detail: DetailContent;
   title?: string;
+  isRunning?: boolean;
 }
 
 function ResultPane(props: ResultPaneProps) {
   const title = () => props.title ?? (props.detail.source === "error" ? "Error" : "Result");
+  const hasContent = () => props.detail.source !== "empty";
+  const showWaiting = () => props.isRunning && !hasContent();
   return (
     <box width="100%" height="100%" flexDirection="column">
-      <text fg={props.detail.source === "error" ? TUI_THEME.danger : TUI_THEME.muted}>
+      <text
+        visible={hasContent() || !props.isRunning}
+        fg={props.detail.source === "error" ? TUI_THEME.danger : TUI_THEME.muted}
+      >
         {title()}
+      </text>
+      <text visible={showWaiting()} fg={TUI_THEME.muted}>
+        Running…
       </text>
       <code
         visible={props.detail.kind === "code" || props.detail.kind === "json"}
@@ -265,8 +282,16 @@ function shortCallId(callId: string): string {
   return callId.length > 12 ? `call ${callId.slice(0, 8)}…` : `call ${callId}`;
 }
 
-function formatDuration(ms?: number): string {
-  if (ms === undefined) return "running";
+function formatDuration(ms?: number, startedAt?: number): string {
+  if (ms === undefined) {
+    if (startedAt !== undefined) {
+      const elapsed = Date.now() - startedAt;
+      if (elapsed < 1000) return `${elapsed}ms ●`;
+      if (elapsed < 60_000) return `${(elapsed / 1000).toFixed(1)}s ●`;
+      return `${Math.floor(elapsed / 60_000)}m ${Math.round((elapsed % 60_000) / 1000)}s ●`;
+    }
+    return "running";
+  }
   if (ms < 1000) return `${ms}ms`;
   if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
   return `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`;

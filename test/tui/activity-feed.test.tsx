@@ -96,6 +96,6 @@ test("uses semantic color only for the status glyph, not the whole activity targ
   const glyph = spans.find((span) => span.text === "✓");
   const target = spans.find((span) => span.text.includes("/project/call-color.ts"));
   expect(glyph?.fg.equals(RGBA.fromHex(TUI_THEME.success))).toBe(true);
-  expect(target?.fg.equals(RGBA.fromHex(TUI_THEME.text))).toBe(true);
+  expect(target?.fg.equals(RGBA.fromHex(TUI_THEME.muted))).toBe(true);
   setup.renderer.destroy();
 });

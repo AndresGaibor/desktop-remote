@@ -64,13 +64,16 @@ export function ActivityFeed(props: ActivityFeedProps) {
                 {block.status === "completed" ? "✓" : block.status === "failed" ? "✕" : "●"}
               </text>
               <text fg={TUI_THEME.text} bg={block.selected ? TUI_THEME.selectedBackground : undefined}>
-                {` ${block.toolName} · ${block.duration}`}
+                <b> {block.toolName}</b>
+              </text>
+              <text fg={TUI_THEME.muted} bg={block.selected ? TUI_THEME.selectedBackground : undefined}>
+                {` · ${block.duration}`}
               </text>
             </box>
             <For each={block.lines.slice(1)}>
               {(line) => (
                 <text
-                  fg={TUI_THEME.text}
+                  fg={TUI_THEME.muted}
                   bg={block.selected ? TUI_THEME.selectedBackground : undefined}
                   wrapMode="none"
                 >

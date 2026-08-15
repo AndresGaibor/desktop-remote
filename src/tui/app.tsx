@@ -163,10 +163,14 @@ export function DesktopRemoteApp(props: DesktopRemoteAppProps) {
         <box height={1} flexDirection="row" justifyContent="space-between">
           <box flexDirection="row">
             <text><b>Tool calls</b></text>
-            <text fg={TUI_THEME.muted}>{filterLabel()}</text>
+            <text fg={props.snapshot().statusFilter !== "all" ? TUI_THEME.accent : TUI_THEME.muted}>{filterLabel()}</text>
           </box>
           <text fg={follow().pendingNew > 0 ? TUI_THEME.accent : TUI_THEME.muted}>
-            {follow().pendingNew > 0 ? `↓ ${follow().pendingNew} new` : props.snapshot().filteredRows.length}
+            {follow().pendingNew > 0
+              ? `↓ ${follow().pendingNew} new`
+              : props.snapshot().statusFilter !== "all"
+                ? `${props.snapshot().filteredRows.length} / ${props.snapshot().rows.length}`
+                : `${props.snapshot().filteredRows.length} calls`}
           </text>
         </box>
 
@@ -259,7 +263,7 @@ export function DesktopRemoteApp(props: DesktopRemoteAppProps) {
 export function footerText(mode: TuiMode, follow: FollowState): string {
   if (mode === "detail") {
     const pending = follow.pendingNew > 0 ? `↓ ${follow.pendingNew} new · ` : "";
-    return `${pending}Esc/← back · a arguments`;
+    return `${pending}Esc/← back · a args · ↑↓ scroll`;
   }
   if (mode === "search") return "Type to search · Enter apply · Esc close";
   if (mode === "help") return "Esc close";

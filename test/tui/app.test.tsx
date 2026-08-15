@@ -94,9 +94,9 @@ test("builds contextual footer text for pending activity and detail", () => {
   expect(footerText("activity", { following: false, pendingNew: 3 }))
     .toContain("↓ 3 new · End latest");
   expect(footerText("detail", { following: false, pendingNew: 0 }))
-    .toBe("Esc/← back · a arguments");
+    .toBe("Esc/← back · a args · ↑↓ scroll");
   expect(footerText("detail", { following: false, pendingNew: 3 }))
-    .toBe("↓ 3 new · Esc/← back · a arguments");
+    .toBe("↓ 3 new · Esc/← back · a args · ↑↓ scroll");
   expect(footerText("activity", { following: true, pendingNew: 0 }))
     .toContain("f filter · ? help");
 });
