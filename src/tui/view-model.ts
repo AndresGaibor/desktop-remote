@@ -24,6 +24,7 @@ export interface ActivityRowView {
 
 export interface ActivityBlockView {
   callId: string;
+  toolName: string;
   selected: boolean;
   tone: SemanticTone;
   status: ToolStatus;
@@ -58,7 +59,7 @@ export function buildActivityBlocks(snapshot: SessionSnapshot, width: number): A
     const duration = row.status === "running" ? "running" : formatDuration(row.durationMs ?? 0);
     const lines = [`${selected ? "›" : " "} ${visual.glyph} ${row.toolName} · ${duration}`];
     if (target) lines.push(...wrapDisplayText(target, contentWidth).map((line) => `    ${line}`));
-    return { callId: row.callId, selected, tone: visual.tone, status: row.status, lines, target, duration };
+    return { callId: row.callId, toolName: row.toolName, selected, tone: visual.tone, status: row.status, lines, target, duration };
   });
 }
 

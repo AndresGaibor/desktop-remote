@@ -124,3 +124,16 @@ test("clicking an activity call through the app selects that call", async () => 
   expect(store.snapshot().selectedCall?.callId).toBe("call-2");
   setup.renderer.destroy();
 });
+
+
+test("does not duplicate the selected activity target below the feed", async () => {
+  const store = populatedStore();
+  const setup = await testRender(
+    () => <DesktopRemoteApp store={store} snapshot={() => store.snapshot()} refresh={() => {}} onQuit={() => {}} />,
+    { width: 110, height: 24 },
+  );
+  await setup.renderOnce();
+  const frame = setup.captureCharFrame();
+  expect(frame.split("/project/src/index.ts").length - 1).toBe(1);
+  setup.renderer.destroy();
+});

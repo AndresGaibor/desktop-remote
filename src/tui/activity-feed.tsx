@@ -56,10 +56,21 @@ export function ActivityFeed(props: ActivityFeedProps) {
               if (click.open) props.onOpen?.(block.callId);
             }}
           >
-            <For each={block.lines}>
+            <box width="100%" flexDirection="row" flexShrink={0}>
+              <text fg={TUI_THEME.muted} bg={block.selected ? TUI_THEME.selectedBackground : undefined}>
+                {block.selected ? "› " : "  "}
+              </text>
+              <text fg={toneColor(block.tone)} bg={block.selected ? TUI_THEME.selectedBackground : undefined}>
+                {block.status === "completed" ? "✓" : block.status === "failed" ? "✕" : "●"}
+              </text>
+              <text fg={TUI_THEME.text} bg={block.selected ? TUI_THEME.selectedBackground : undefined}>
+                {` ${block.toolName} · ${block.duration}`}
+              </text>
+            </box>
+            <For each={block.lines.slice(1)}>
               {(line) => (
                 <text
-                  fg={toneColor(block.tone)}
+                  fg={TUI_THEME.text}
                   bg={block.selected ? TUI_THEME.selectedBackground : undefined}
                   wrapMode="none"
                 >

@@ -14,7 +14,6 @@ import {
 } from "./interaction";
 import {
   buildActivityBlocks,
-  buildContextSummary,
   buildEmptyState,
   buildSearchCounter,
   connectionVisual,
@@ -39,7 +38,6 @@ export function DesktopRemoteApp(props: DesktopRemoteAppProps) {
   const refresh = () => props.refresh();
   const selected = () => props.snapshot().selectedCall;
   const blocks = () => buildActivityBlocks(props.snapshot(), dimensions().width);
-  const contextSummary = () => buildContextSummary(props.snapshot(), dimensions().width);
   const connection = () => connectionVisual(props.snapshot().connection);
   const filterLabel = () => props.snapshot().statusFilter === "all"
     ? ""
@@ -191,16 +189,6 @@ export function DesktopRemoteApp(props: DesktopRemoteAppProps) {
           </For>
         </box>
 
-        <box
-          visible={contextSummary().length > 0 && dimensions().height >= 18}
-          height={contextSummary().length + 1}
-          flexDirection="column"
-        >
-          <text fg={TUI_THEME.muted}>────────────────────────────────────────</text>
-          <For each={contextSummary()}>
-            {(line) => <text fg={TUI_THEME.muted} wrapMode="word">{line}</text>}
-          </For>
-        </box>
       </box>
 
       <box visible={mode() === "detail"} flexGrow={1} minHeight={5} flexDirection="column">

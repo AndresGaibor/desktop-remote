@@ -8,7 +8,7 @@ import type { ActivityBlockView } from "../../src/tui/view-model";
 
 test("selected activity background covers wrapped continuation lines", async () => {
   const block: ActivityBlockView = {
-    callId: "call-1", selected: true, tone: "success", status: "completed",
+    callId: "call-1", toolName: "start_process", selected: true, tone: "success", status: "completed",
     target: "very long command", duration: "42ms",
     lines: ["› ✓ start_process · 42ms", "    first wrapped line", "    second wrapped line"],
   };
@@ -29,6 +29,7 @@ test("selected activity background covers wrapped continuation lines", async () 
 function activityBlock(callId: string, selected = false): ActivityBlockView {
   return {
     callId,
+    toolName: "read_file",
     selected,
     tone: "success",
     status: "completed",
@@ -80,5 +81,21 @@ test("selected offscreen activity call is scrolled into view on mount", async ()
   await new Promise((resolve) => setTimeout(resolve, 0));
   await setup.renderOnce();
   expect(setup.captureCharFrame()).toContain("/project/call-12.ts");
+  setup.renderer.destroy();
+});
+
+
+test("uses semantic color only for the status glyph, not the whole activity target", async () => {
+  const block = activityBlock("call-color", true);
+  const setup = await testRender(
+    () => <ActivityFeed blocks={[block]} following={true} />,
+    { width: 60, height: 6 },
+  );
+  await setup.renderOnce();
+  const spans = setup.captureSpans().lines.flatMap((line) => line.spans);
+  const glyph = spans.find((span) => span.text === "✓");
+  const target = spans.find((span) => span.text.includes("/project/call-color.ts"));
+  expect(glyph?.fg.equals(RGBA.fromHex(TUI_THEME.success))).toBe(true);
+  expect(target?.fg.equals(RGBA.fromHex(TUI_THEME.text))).toBe(true);
   setup.renderer.destroy();
 });
