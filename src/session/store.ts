@@ -96,6 +96,12 @@ export class SessionStore {
     this.selectedCallId = rows.at(-1)?.callId;
   }
 
+  selectCall(callId: string): void {
+    if (this.getFilteredRows().some((row) => row.callId === callId)) {
+      this.selectedCallId = callId;
+    }
+  }
+
   moveSelection(delta: number): void {
     const rows = this.getFilteredRows();
     if (rows.length === 0) {

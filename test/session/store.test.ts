@@ -115,3 +115,19 @@ test("selectLastFiltered jumps to the newest visible call", () => {
   store.selectLastFiltered();
   expect(store.snapshot().selectedCall?.callId).toBe("c");
 });
+
+test("selectCall selects only calls visible in the current view", () => {
+  const store = new SessionStore();
+  store.consume(started("a"));
+  store.consume(completed("a"));
+  store.consume(started("b"));
+  store.selectCall("b");
+  expect(store.snapshot().selectedCall?.callId).toBe("b");
+
+  store.setStatusFilter("completed");
+  expect(store.snapshot().selectedCall?.callId).toBe("a");
+  store.selectCall("b");
+  expect(store.snapshot().selectedCall?.callId).toBe("a");
+  store.selectCall("missing");
+  expect(store.snapshot().selectedCall?.callId).toBe("a");
+});
