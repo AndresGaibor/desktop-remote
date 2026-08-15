@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   actionForKey,
+  registerActivityClick,
   transitionMode,
   updateFollowState,
   type TuiMode,
@@ -17,6 +18,7 @@ describe("TUI keyboard interaction model", () => {
     expect(actionForKey({ sequence: "?" })).toBe("toggle-help");
     expect(actionForKey({ name: "f" })).toBe("cycle-filter");
     expect(actionForKey({ name: "end" })).toBe("jump-end");
+    expect(actionForKey({ name: "left" })).toBe("back");
     expect(actionForKey({ name: "a" })).toBe("toggle-arguments");
     expect(actionForKey({ name: "c", ctrl: true })).toBe("quit");
   });
@@ -45,11 +47,23 @@ describe("TUI keyboard interaction model", () => {
 });
 
 
-test("follow state pauses, counts new calls, and resumes", () => {
-  const paused = updateFollowState({ following: true, pendingNew: 0 }, "user-away");
-  expect(paused).toEqual({ following: false, pendingNew: 0 });
-  const pending = updateFollowState(paused, "new-call");
+test("follow state freezes only for detail, counts new calls, and resumes", () => {
+  const frozen = updateFollowState({ following: true, pendingNew: 0 }, "freeze");
+  expect(frozen).toEqual({ following: false, pendingNew: 0 });
+  const pending = updateFollowState(frozen, "new-call");
   expect(updateFollowState(pending, "new-call")).toEqual({ following: false, pendingNew: 2 });
   expect(updateFollowState({ following: false, pendingNew: 4 }, "resume"))
     .toEqual({ following: true, pendingNew: 0 });
+});
+
+test("same-call second click inside threshold opens detail", () => {
+  const first = registerActivityClick(undefined, "call-1", 1_000);
+  expect(first.open).toBe(false);
+  expect(registerActivityClick(first.state, "call-1", 1_200).open).toBe(true);
+  expect(registerActivityClick(first.state, "call-2", 1_200).open).toBe(false);
+  expect(registerActivityClick(first.state, "call-1", 1_500).open).toBe(false);
+});
+
+test("back action closes detail like Escape", () => {
+  expect(transitionMode("detail", "back", true)).toBe("activity");
 });

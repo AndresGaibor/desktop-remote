@@ -8,6 +8,7 @@ export type TuiAction =
   | "cycle-filter"
   | "jump-end"
   | "toggle-arguments"
+  | "back"
   | "escape"
   | "quit"
   | "none";
@@ -17,7 +18,17 @@ export interface FollowState {
   pendingNew: number;
 }
 
-export type FollowEvent = "user-away" | "new-call" | "resume";
+export type FollowEvent = "user-away" | "freeze" | "new-call" | "resume";
+
+export interface ActivityClickState {
+  callId: string;
+  at: number;
+}
+
+export interface ActivityClickResult {
+  state: ActivityClickState | undefined;
+  open: boolean;
+}
 
 export interface KeyLike {
   name?: string;
@@ -28,6 +39,7 @@ export interface KeyLike {
 export function actionForKey(key: KeyLike): TuiAction {
   if (key.ctrl && key.name === "c") return "quit";
   if (key.name === "escape") return "escape";
+  if (key.name === "left") return "back";
   if (key.name === "up" || key.name === "k") return "previous";
   if (key.name === "down" || key.name === "j") return "next";
   if (key.name === "end") return "jump-end";
@@ -41,9 +53,24 @@ export function actionForKey(key: KeyLike): TuiAction {
 
 export function updateFollowState(state: FollowState, event: FollowEvent): FollowState {
   if (event === "resume") return { following: true, pendingNew: 0 };
-  if (event === "user-away") return { ...state, following: false };
+  if (event === "freeze") return { following: false, pendingNew: 0 };
+  if (event === "user-away") return state;
   if (state.following) return state;
   return { following: false, pendingNew: state.pendingNew + 1 };
+}
+
+export function registerActivityClick(
+  state: ActivityClickState | undefined,
+  callId: string,
+  nowMs: number,
+  thresholdMs = 350,
+): ActivityClickResult {
+  const elapsed = state?.callId === callId ? nowMs - state.at : Number.POSITIVE_INFINITY;
+  const open = elapsed >= 0 && elapsed <= thresholdMs;
+  return {
+    state: open ? undefined : { callId, at: nowMs },
+    open,
+  };
 }
 
 export function transitionMode(
@@ -51,7 +78,7 @@ export function transitionMode(
   action: TuiAction,
   hasSelection: boolean,
 ): TuiMode {
-  if (action === "escape") return "activity";
+  if (action === "escape" || action === "back") return "activity";
   if (action === "open-detail") {
     return mode === "activity" && hasSelection ? "detail" : mode;
   }
