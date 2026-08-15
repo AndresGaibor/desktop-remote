@@ -7,6 +7,7 @@ import { CallDetailView } from "./detail-view";
 import {
   actionForKey,
   transitionMode,
+  updateFollowForTotalCalls,
   updateFollowState,
   type FollowState,
   type TuiMode,
@@ -48,17 +49,10 @@ export function DesktopRemoteApp(props: DesktopRemoteAppProps) {
     const total = props.snapshot().counts.total;
     const previous = lastTotalCalls;
     lastTotalCalls = total;
-    if (previous < 0) {
-      if (total > 0 && follow().following) selectNewest();
-      return;
-    }
-    if (total <= previous) return;
-    let next = follow();
-    for (let index = 0; index < total - previous; index += 1) {
-      next = updateFollowState(next, "new-call");
-    }
-    if (next.following) selectNewest();
-    else setFollow(next);
+    const current = follow();
+    const update = updateFollowForTotalCalls(current, previous, total);
+    if (update.state !== current) setFollow(update.state);
+    if (update.selectNewest) selectNewest();
   });
 
   function selectNewest() {
@@ -67,7 +61,6 @@ export function DesktopRemoteApp(props: DesktopRemoteAppProps) {
   }
 
   function move(delta: number) {
-    if (delta < 0) setFollow((state) => updateFollowState(state, "user-away"));
     props.store.moveSelection(delta);
     refresh();
   }
@@ -82,7 +75,27 @@ export function DesktopRemoteApp(props: DesktopRemoteAppProps) {
     const current = props.snapshot().statusFilter;
     const index = FILTERS.indexOf(current);
     props.store.setStatusFilter(FILTERS[(index + 1) % FILTERS.length] ?? "all");
-    if (follow().following) props.store.selectLastFiltered();
+    props.store.selectLastFiltered();
+    refresh();
+  }
+
+  function selectCall(callId: string) {
+    props.store.selectCall(callId);
+    refresh();
+  }
+
+  function openDetail(callId?: string) {
+    if (callId) props.store.selectCall(callId);
+    setArgumentsExpanded(false);
+    setFollow((state) => updateFollowState(state, "freeze"));
+    setMode("detail");
+    refresh();
+  }
+
+  function backToActivity() {
+    props.store.selectLastFiltered();
+    setFollow((state) => updateFollowState(state, "resume"));
+    setMode("activity");
     refresh();
   }
 
@@ -95,7 +108,7 @@ export function DesktopRemoteApp(props: DesktopRemoteAppProps) {
       return;
     }
     if (currentMode === "search") {
-      if (action === "escape") setMode("activity");
+      if (action === "escape" || action === "back") backToActivity();
       return;
     }
     if (currentMode === "detail") {
@@ -103,7 +116,7 @@ export function DesktopRemoteApp(props: DesktopRemoteAppProps) {
         setArgumentsExpanded((value) => !value);
         return;
       }
-      if (action === "escape") setMode("activity");
+      if (action === "escape" || action === "back") backToActivity();
       return;
     }
     if (currentMode === "help") {
@@ -116,8 +129,7 @@ export function DesktopRemoteApp(props: DesktopRemoteAppProps) {
     else if (action === "jump-end") jumpToNewest();
     else if (action === "cycle-filter") cycleFilter();
     else if (action === "open-detail" && selected()) {
-      setArgumentsExpanded(false);
-      setMode("detail");
+      openDetail();
     } else {
       setMode(transitionMode(currentMode, action, selected() !== undefined));
     }
@@ -141,10 +153,10 @@ export function DesktopRemoteApp(props: DesktopRemoteAppProps) {
           placeholder="Search tool, path or command…"
           onInput={(value) => {
             props.store.setQuery(value);
-            if (follow().following) props.store.selectLastFiltered();
+            props.store.selectLastFiltered();
             refresh();
           }}
-          onSubmit={() => setMode("activity")}
+          onSubmit={backToActivity}
         />
         <text fg={TUI_THEME.muted}>{buildSearchCounter(props.snapshot())}</text>
       </box>
@@ -165,6 +177,8 @@ export function DesktopRemoteApp(props: DesktopRemoteAppProps) {
             blocks={blocks()}
             following={follow().following}
             viewportHeight={Math.max(3, dimensions().height - 9)}
+            onSelect={selectCall}
+            onOpen={openDetail}
           />
         </box>
         <box visible={blocks().length === 0} flexGrow={1} flexDirection="column">
@@ -189,16 +203,21 @@ export function DesktopRemoteApp(props: DesktopRemoteAppProps) {
         </box>
       </box>
 
-      <box visible={mode() === "detail"} flexGrow={1} minHeight={5}>
-        <For each={mode() === "detail" && selected() ? [selected()!] : []}>
-          {(row) => (
-            <CallDetailView
-              row={row}
-              width={dimensions().width}
-              argumentsExpanded={argumentsExpanded()}
-            />
-          )}
-        </For>
+      <box visible={mode() === "detail"} flexGrow={1} minHeight={5} flexDirection="column">
+        <box visible={follow().pendingNew > 0} height={follow().pendingNew > 0 ? 1 : 0} justifyContent="flex-end">
+          <text fg={TUI_THEME.accent}>↓ {follow().pendingNew} new</text>
+        </box>
+        <box flexGrow={1}>
+          <For each={mode() === "detail" && selected() ? [selected()!] : []}>
+            {(row) => (
+              <CallDetailView
+                row={row}
+                width={dimensions().width}
+                argumentsExpanded={argumentsExpanded()}
+              />
+            )}
+          </For>
+        </box>
       </box>
       <text height={1} fg={TUI_THEME.muted}>
         {footerText(mode(), follow())}
@@ -241,7 +260,7 @@ export function DesktopRemoteApp(props: DesktopRemoteAppProps) {
         flexDirection="column"
       >
         <text><b>Navigate</b>  ↑/↓ · j/k · End latest</text>
-        <text><b>Inspect</b>   Enter detail · a raw args · Esc back</text>
+        <text><b>Inspect</b>   Enter detail · a raw args · Esc/← back</text>
         <text><b>Filter</b>    / search · f status</text>
         <text><b>Exit</b>      Ctrl+C graceful shutdown</text>
       </box>
@@ -250,7 +269,10 @@ export function DesktopRemoteApp(props: DesktopRemoteAppProps) {
 }
 
 export function footerText(mode: TuiMode, follow: FollowState): string {
-  if (mode === "detail") return "Esc back · a arguments";
+  if (mode === "detail") {
+    const pending = follow.pendingNew > 0 ? `↓ ${follow.pendingNew} new · ` : "";
+    return `${pending}Esc/← back · a arguments`;
+  }
   if (mode === "search") return "Type to search · Enter apply · Esc close";
   if (mode === "help") return "Esc close";
   if (follow.pendingNew > 0) {

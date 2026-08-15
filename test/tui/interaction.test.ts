@@ -3,6 +3,7 @@ import {
   actionForKey,
   registerActivityClick,
   transitionMode,
+  updateFollowForTotalCalls,
   updateFollowState,
   type TuiMode,
 } from "../../src/tui/interaction";
@@ -66,4 +67,20 @@ test("same-call second click inside threshold opens detail", () => {
 
 test("back action closes detail like Escape", () => {
   expect(transitionMode("detail", "back", true)).toBe("activity");
+});
+
+
+test("new call totals select latest only while live and count while frozen", () => {
+  expect(updateFollowForTotalCalls({ following: true, pendingNew: 0 }, 1, 2)).toEqual({
+    state: { following: true, pendingNew: 0 },
+    selectNewest: true,
+  });
+  expect(updateFollowForTotalCalls({ following: false, pendingNew: 0 }, 1, 3)).toEqual({
+    state: { following: false, pendingNew: 2 },
+    selectNewest: false,
+  });
+  expect(updateFollowForTotalCalls({ following: false, pendingNew: 2 }, 3, 3)).toEqual({
+    state: { following: false, pendingNew: 2 },
+    selectNewest: false,
+  });
 });

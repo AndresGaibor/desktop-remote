@@ -59,6 +59,29 @@ export function updateFollowState(state: FollowState, event: FollowEvent): Follo
   return { following: false, pendingNew: state.pendingNew + 1 };
 }
 
+
+export interface FollowTotalUpdate {
+  state: FollowState;
+  selectNewest: boolean;
+}
+
+export function updateFollowForTotalCalls(
+  state: FollowState,
+  previousTotal: number,
+  total: number,
+): FollowTotalUpdate {
+  if (previousTotal < 0) {
+    return { state, selectNewest: total > 0 && state.following };
+  }
+  if (total <= previousTotal) return { state, selectNewest: false };
+
+  let next = state;
+  for (let index = 0; index < total - previousTotal; index += 1) {
+    next = updateFollowState(next, "new-call");
+  }
+  return { state: next, selectNewest: next.following };
+}
+
 export function registerActivityClick(
   state: ActivityClickState | undefined,
   callId: string,

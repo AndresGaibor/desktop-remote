@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { RGBA } from "@opentui/core";
+import { createMockMouse } from "@opentui/core/testing";
 import { testRender } from "@opentui/solid";
 import { DesktopRemoteApp, footerText } from "../../src/tui/app";
 import { SessionStore } from "../../src/session/store";
@@ -92,8 +93,34 @@ test("renders a long process target completely without ellipsis", async () => {
 test("builds contextual footer text for pending activity and detail", () => {
   expect(footerText("activity", { following: false, pendingNew: 3 }))
     .toContain("↓ 3 new · End latest");
-  expect(footerText("detail", { following: true, pendingNew: 0 }))
-    .toBe("Esc back · a arguments");
+  expect(footerText("detail", { following: false, pendingNew: 0 }))
+    .toBe("Esc/← back · a arguments");
+  expect(footerText("detail", { following: false, pendingNew: 3 }))
+    .toBe("↓ 3 new · Esc/← back · a arguments");
   expect(footerText("activity", { following: true, pendingNew: 0 }))
     .toContain("f filter · ? help");
+});
+
+test("clicking an activity call through the app selects that call", async () => {
+  const store = populatedStore();
+  store.consume({
+    type: "tool.started",
+    callId: "call-2",
+    toolName: "start_process",
+    args: { command: "printf second-call" },
+    metadata: {},
+    startedAt: 30,
+  });
+  const setup = await testRender(
+    () => <DesktopRemoteApp store={store} snapshot={() => store.snapshot()} refresh={() => {}} onQuit={() => {}} />,
+    { width: 110, height: 24 },
+  );
+  await setup.renderOnce();
+  expect(store.snapshot().selectedCall?.callId).toBe("call-1");
+  const row = setup.renderer.root.findDescendantById("activity-call-call-2");
+  expect(row).toBeDefined();
+  if (!row) { setup.renderer.destroy(); return; }
+  await createMockMouse(setup.renderer).click(row.screenX + 1, row.screenY);
+  expect(store.snapshot().selectedCall?.callId).toBe("call-2");
+  setup.renderer.destroy();
 });
