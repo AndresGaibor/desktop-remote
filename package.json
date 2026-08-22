@@ -12,7 +12,8 @@
     "start": "bun run bin/cli.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
-    "daemon:dev": "bun run bin/daemon.ts"
+    "daemon:dev": "bun run bin/daemon.ts",
+    "attach:dev": "bun run bin/attach.ts"
   },
   "devDependencies": {
     "@types/bun": "latest"

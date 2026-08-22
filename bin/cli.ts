@@ -3,8 +3,8 @@ import { Command } from "commander";
 import { selectCliMode } from "../src/cli/mode";
 import { runPipeMode } from "../src/cli/run-pipe";
 import { readJsonlEvents } from "../src/logging/jsonl";
-import { DesktopRemoteIpcClient } from "../src/client/ipc-client";
-import { IpcTuiSessionSource, type TuiSessionSource } from "../src/client/session-source";
+import { type TuiSessionSource } from "../src/client/session-source";
+import { attachTui } from "../src/client/run-attach";
 import { SessionStore } from "../src/session/store";
 import { runDaemon } from "../src/daemon/run-daemon";
 
@@ -62,13 +62,7 @@ program
     if (options.logJsonl) {
       throw new Error("--log-jsonl is not available in attached TUI mode; use daemon logging");
     }
-    const store = new SessionStore();
-    const source = new IpcTuiSessionSource({
-      store,
-      createClient: () => new DesktopRemoteIpcClient(),
-    });
-    const { runTui } = await import("../src/tui/run-tui");
-    await runTui({ source, store });
+    await attachTui();
   });
 
 const REPLAY_SOURCE: TuiSessionSource = {
