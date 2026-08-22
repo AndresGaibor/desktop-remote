@@ -142,3 +142,14 @@ describe("DesktopRemoteIpcClient", () => {
     await expect(client.requestStatus()).rejects.toThrow(/not connected/i);
   });
 });
+
+
+test("visual connect is idempotent for a preflight-attached client", async () => {
+  const { paths } = await setupServer();
+  const client = createClient(paths.socketPath);
+  await client.connect("visual");
+  await client.connect("visual");
+  const snapshot = await client.requestSnapshot();
+  expect(snapshot.rows).toHaveLength(1);
+  await client.close();
+});

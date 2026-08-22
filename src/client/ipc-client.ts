@@ -76,7 +76,10 @@ export class DesktopRemoteIpcClient {
     this.heartbeatScheduler = options.heartbeatScheduler ?? DEFAULT_HEARTBEAT_SCHEDULER;
   }
   async connect(mode: "visual" | "admin"): Promise<void> {
-    if (this.socket && !this.socket.destroyed) throw new Error("Desktop Remote IPC client already connected");
+    if (this.socket && !this.socket.destroyed) {
+      if (this.mode === mode) return;
+      throw new Error(`Desktop Remote IPC client already connected as ${this.mode ?? "unknown"}`);
+    }
     this.mode = mode;
     this.intentionalClose = false;
     this.decoder = new JsonLineDecoder();
