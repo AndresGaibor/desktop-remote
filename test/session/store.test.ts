@@ -150,3 +150,21 @@ test("selectCall selects only calls visible in the current view", () => {
   store.selectCall("missing");
   expect(store.snapshot().selectedCall?.callId).toBe("a");
 });
+
+test("replaceRuntime preserves local query and filter presentation state", async () => {
+  const { RuntimeSessionStore } = await import("../../src/session/runtime-store");
+  const runtime = new RuntimeSessionStore();
+  runtime.consume(started("alpha", "read_file"));
+  runtime.consume(completed("alpha", "read_file"));
+  runtime.consume(started("beta", "start_process"));
+
+  const store = new SessionStore();
+  store.setQuery("process");
+  store.setStatusFilter("running");
+  store.replaceRuntime(runtime.snapshot());
+
+  const snapshot = store.snapshot();
+  expect(snapshot.query).toBe("process");
+  expect(snapshot.statusFilter).toBe("running");
+  expect(snapshot.filteredRows.map((row) => row.callId)).toEqual(["beta"]);
+});

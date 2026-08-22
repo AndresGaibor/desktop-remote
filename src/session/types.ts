@@ -34,14 +34,17 @@ export interface SessionCounts {
   failed: number;
 }
 
-export interface SessionSnapshot {
+export interface RuntimeSessionSnapshot {
   connection: ConnectionStatus;
   device?: SessionDevice;
   auth?: SessionAuth;
   rows: ToolCallRow[];
+  counts: SessionCounts;
+}
+
+export interface SessionSnapshot extends RuntimeSessionSnapshot {
   filteredRows: ToolCallRow[];
   selectedCall?: ToolCallRow;
-  counts: SessionCounts;
   query: string;
   statusFilter: StatusFilter;
 }

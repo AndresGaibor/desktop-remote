@@ -1,84 +1,30 @@
 import type { RuntimeEvent } from "../runtime/events";
+import { RuntimeSessionStore } from "./runtime-store";
 import type {
-  ConnectionStatus,
-  SessionAuth,
-  SessionDevice,
+  RuntimeSessionSnapshot,
   SessionSnapshot,
   StatusFilter,
   ToolCallRow,
 } from "./types";
 
 export class SessionStore {
-  private connection: ConnectionStatus = "starting";
-  private device: SessionDevice | undefined;
-  private auth: SessionAuth | undefined;
-  private readonly calls = new Map<string, ToolCallRow>();
-  private readonly order: string[] = [];
+  private readonly runtime: RuntimeSessionStore;
   private query = "";
   private statusFilter: StatusFilter = "all";
   private selectedCallId: string | undefined;
 
-  constructor(private readonly maxHistory = 50) {}
+  constructor(maxHistory = 50) {
+    this.runtime = new RuntimeSessionStore(maxHistory);
+  }
 
   consume(event: RuntimeEvent): void {
-    if (event.type === "device.ready") {
-      this.connection = "online";
-      this.auth = undefined;
-      this.device = {
-        user: event.user,
-        deviceId: event.deviceId,
-        deviceName: event.deviceName,
-      };
-      return;
-    }
+    this.runtime.consume(event);
+    this.ensureSelection();
+  }
 
-    if (event.type === "auth.required") {
-      this.connection = "auth";
-      this.auth = { url: event.url, code: event.code, expiresIn: event.expiresIn };
-      return;
-    }
-    if (event.type === "runtime.exited") {
-      this.connection = "offline";
-      return;
-    }
-    if (event.type === "runtime.error") {
-      this.connection = "error";
-      return;
-    }
-    if (event.type === "tool.started") {
-      this.upsertStarted(event);
-      return;
-    }
-    if (event.type === "tool.completed") {
-      const current = this.calls.get(event.callId);
-      this.setCall(event.callId, {
-        callId: event.callId,
-        toolName: event.toolName,
-        args: current?.args ?? {},
-        metadata: current?.metadata ?? {},
-        status: "completed",
-        startedAt: current?.startedAt ?? event.completedAt - (event.durationMs ?? 0),
-        completedAt: event.completedAt,
-        durationMs: event.durationMs,
-        resultText: event.resultText,
-      });
-      return;
-    }
-
-    if (event.type === "tool.failed") {
-      const current = this.calls.get(event.callId);
-      this.setCall(event.callId, {
-        callId: event.callId,
-        toolName: event.toolName,
-        args: current?.args ?? {},
-        metadata: current?.metadata ?? {},
-        status: "failed",
-        startedAt: current?.startedAt ?? event.completedAt - (event.durationMs ?? 0),
-        completedAt: event.completedAt,
-        durationMs: event.durationMs,
-        error: event.error,
-      });
-    }
+  replaceRuntime(snapshot: RuntimeSessionSnapshot): void {
+    this.runtime.restore(snapshot);
+    this.ensureSelection();
   }
 
   setQuery(query: string): void {
@@ -117,65 +63,20 @@ export class SessionStore {
   }
 
   snapshot(): SessionSnapshot {
-    const rows = this.order
-      .map((callId) => this.calls.get(callId))
-      .filter((row): row is ToolCallRow => row !== undefined);
-    const filteredRows = this.filterRows(rows);
+    const runtime = this.runtime.snapshot();
+    const filteredRows = this.filterRows(runtime.rows);
     const selectedCall = filteredRows.find((row) => row.callId === this.selectedCallId);
-    const counts = {
-      total: rows.length,
-      running: rows.filter((row) => row.status === "running").length,
-      completed: rows.filter((row) => row.status === "completed").length,
-      failed: rows.filter((row) => row.status === "failed").length,
-    };
-
     return {
-      connection: this.connection,
-      device: this.device,
-      auth: this.auth,
-      rows,
+      ...runtime,
       filteredRows,
       selectedCall,
-      counts,
       query: this.query,
       statusFilter: this.statusFilter,
     };
   }
 
-  private upsertStarted(event: Extract<RuntimeEvent, { type: "tool.started" }>) {
-    this.setCall(event.callId, {
-      callId: event.callId,
-      toolName: event.toolName,
-      args: event.args,
-      metadata: event.metadata,
-      status: "running",
-      startedAt: event.startedAt,
-    });
-  }
-
-  private setCall(callId: string, row: ToolCallRow) {
-    if (!this.calls.has(callId)) {
-      this.order.push(callId);
-      if (!this.selectedCallId) this.selectedCallId = callId;
-    }
-    this.calls.set(callId, row);
-    this.prune();
-    this.ensureSelection();
-  }
-
-  private prune() {
-    while (this.order.length > this.maxHistory) {
-      const removed = this.order.shift();
-      if (removed) this.calls.delete(removed);
-      if (removed === this.selectedCallId) this.selectedCallId = undefined;
-    }
-  }
   private getFilteredRows(): ToolCallRow[] {
-    return this.filterRows(
-      this.order
-        .map((callId) => this.calls.get(callId))
-        .filter((row): row is ToolCallRow => row !== undefined),
-    );
+    return this.filterRows(this.runtime.snapshot().rows);
   }
 
   private filterRows(rows: ToolCallRow[]): ToolCallRow[] {
@@ -189,12 +90,14 @@ export class SessionStore {
         safeStringify(row.args),
         row.resultText ?? "",
         row.error ?? "",
-      ].join(" ").toLowerCase();
+      ]
+        .join(" ")
+        .toLowerCase();
       return searchable.includes(query);
     });
   }
 
-  private ensureSelection() {
+  private ensureSelection(): void {
     const rows = this.getFilteredRows();
     if (rows.length === 0) {
       this.selectedCallId = undefined;
