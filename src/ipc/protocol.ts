@@ -25,6 +25,7 @@ export type ClientMessage =
 
 export type ServerMessage =
   | (Versioned & { type: "hello.ack"; daemonPid: number })
+  | (Versioned & { type: "attached"; attachedSince: number })
   | (Versioned & {
       type: "snapshot.begin";
       connection: ConnectionStatus;
@@ -71,6 +72,9 @@ export function parseServerMessage(value: unknown): ServerMessage {
   switch (message.type) {
     case "hello.ack":
       requireNumber(message.daemonPid, "hello.ack daemonPid");
+      return message as ServerMessage;
+    case "attached":
+      requireNumber(message.attachedSince, "attached timestamp");
       return message as ServerMessage;
     case "snapshot.begin":
       requireConnection(message.connection);

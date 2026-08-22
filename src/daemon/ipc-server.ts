@@ -179,6 +179,11 @@ export class DaemonIpcServer {
       this.visualLease = { socket, attachedSince: now, lastHeartbeatAt: now };
       this.scheduleLeaseExpiry();
     }
+    this.send(socket, {
+      type: "attached",
+      protocolVersion: PROTOCOL_VERSION,
+      attachedSince: this.visualLease.attachedSince,
+    });
   }
 
   private requireVisualLease(socket: Socket): boolean {

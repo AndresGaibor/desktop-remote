@@ -26,6 +26,8 @@ describe("IPC protocol", () => {
   test("accepts and validates version-1 server messages", () => {
     expect(parseServerMessage({ type: "hello.ack", protocolVersion: 1, daemonPid: 123 }))
       .toEqual({ type: "hello.ack", protocolVersion: 1, daemonPid: 123 });
+    expect(parseServerMessage({ type: "attached", protocolVersion: 1, attachedSince: 44 }))
+      .toEqual({ type: "attached", protocolVersion: 1, attachedSince: 44 });
     expect(() => parseServerMessage({ type: "hello.ack", protocolVersion: 9, daemonPid: 123 }))
       .toThrow(/protocol version/i);
     expect(() => parseServerMessage({ type: "unknown", protocolVersion: 1 }))
