@@ -72,15 +72,16 @@ test("wide terminals no longer force a split pane", async () => {
 });
 
 
-test("wraps long activity targets without ellipsis", () => {
+test("bounds long activity targets to a short preview", () => {
   const base = snapshot();
   const command = "printf PASS tui-live.test.ts warning src/tui/app.tsx:42:7 Live warning error src/tui/app.tsx:57:3 Live error";
   const row = { ...base.rows[0]!, toolName: "start_process", args: { command } };
   const custom = { ...base, rows: [row], filteredRows: [row], selectedCall: row };
   const rendered = buildActivityBlocks(custom, 44)[0]?.lines.join("\n") ?? "";
   const normalized = rendered.replace(/\s+/g, " ");
-  expect(normalized).toContain("src/tui/app.tsx:57:3 Live error");
-  expect(rendered).not.toContain("…");
+  expect(normalized).toContain("src/tui/app.tsx:42:7 Live warning");
+  expect(rendered).toContain("…");
+  expect(rendered.split("\n")).toHaveLength(4);
 });
 
 test("builds search match counter inside the active status filter", () => {

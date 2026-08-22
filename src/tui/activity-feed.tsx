@@ -1,5 +1,5 @@
 import type { ScrollBoxRenderable } from "@opentui/core";
-import { For } from "solid-js";
+import { Index } from "solid-js";
 import { registerActivityClick, type ActivityClickState } from "./interaction";
 import type { ActivityBlockView } from "./view-model";
 import { TUI_THEME, toneColor } from "./theme";
@@ -40,50 +40,51 @@ export function ActivityFeed(props: ActivityFeedProps) {
       stickyScroll={stickyBottom()}
       stickyStart={stickyBottom() ? "bottom" : undefined}
     >
-      <For each={props.blocks}>
+      <Index each={props.blocks}>
         {(block) => (
           <box
-            id={`activity-call-${block.callId}`}
+            id={`activity-call-${block().callId}`}
             width="100%"
             flexDirection="column"
             flexShrink={0}
             onMouseUp={(event) => {
               if (event.button !== 0) return;
               event.stopPropagation();
-              const click = registerActivityClick(clickState, block.callId, Date.now());
+              const callId = block().callId;
+              const click = registerActivityClick(clickState, callId, Date.now());
               clickState = click.state;
-              props.onSelect?.(block.callId);
-              if (click.open) props.onOpen?.(block.callId);
+              props.onSelect?.(callId);
+              if (click.open) props.onOpen?.(callId);
             }}
           >
             <box width="100%" flexDirection="row" flexShrink={0}>
-              <text fg={TUI_THEME.muted} bg={block.selected ? TUI_THEME.selectedBackground : undefined}>
-                {block.selected ? "› " : "  "}
+              <text fg={TUI_THEME.muted} bg={block().selected ? TUI_THEME.selectedBackground : undefined}>
+                {block().selected ? "› " : "  "}
               </text>
-              <text fg={toneColor(block.tone)} bg={block.selected ? TUI_THEME.selectedBackground : undefined}>
-                {block.status === "completed" ? "✓" : block.status === "failed" ? "✕" : "●"}
+              <text fg={toneColor(block().tone)} bg={block().selected ? TUI_THEME.selectedBackground : undefined}>
+                {block().status === "completed" ? "✓" : block().status === "failed" ? "✕" : "●"}
               </text>
-              <text fg={TUI_THEME.text} bg={block.selected ? TUI_THEME.selectedBackground : undefined}>
-                <b> {block.toolName}</b>
+              <text fg={TUI_THEME.text} bg={block().selected ? TUI_THEME.selectedBackground : undefined}>
+                <b> {block().toolName}</b>
               </text>
-              <text fg={TUI_THEME.muted} bg={block.selected ? TUI_THEME.selectedBackground : undefined}>
-                {` · ${block.duration}`}
+              <text fg={TUI_THEME.muted} bg={block().selected ? TUI_THEME.selectedBackground : undefined}>
+                {` · ${block().duration}`}
               </text>
             </box>
-            <For each={block.lines.slice(1)}>
+            <Index each={block().lines.slice(1)}>
               {(line) => (
                 <text
                   fg={TUI_THEME.muted}
-                  bg={block.selected ? TUI_THEME.selectedBackground : undefined}
+                  bg={block().selected ? TUI_THEME.selectedBackground : undefined}
                   wrapMode="none"
                 >
-                  {line || " "}
+                  {line() || " "}
                 </text>
               )}
-            </For>
+            </Index>
           </box>
         )}
-      </For>
+      </Index>
     </scrollbox>
   );
 }

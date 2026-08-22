@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { RGBA } from "@opentui/core";
 import { createMockMouse } from "@opentui/core/testing";
 import { testRender } from "@opentui/solid";
+import { createSignal } from "solid-js";
 import { ActivityFeed } from "../../src/tui/activity-feed";
 import { TUI_THEME } from "../../src/tui/theme";
 import type { ActivityBlockView } from "../../src/tui/view-model";
@@ -97,5 +98,33 @@ test("uses semantic color only for the status glyph, not the whole activity targ
   const target = spans.find((span) => span.text.includes("/project/call-color.ts"));
   expect(glyph?.fg.equals(RGBA.fromHex(TUI_THEME.success))).toBe(true);
   expect(target?.fg.equals(RGBA.fromHex(TUI_THEME.muted))).toBe(true);
+  setup.renderer.destroy();
+});
+
+test("reuses activity renderables across repeated snapshot refreshes", async () => {
+  const longLines = Array.from({ length: 120 }, (_, index) => `    command fragment ${index}`);
+  const makeBlock = (): ActivityBlockView => ({
+    callId: "call-stable",
+    toolName: "start_process",
+    selected: true,
+    tone: "warning",
+    status: "running",
+    target: "large command",
+    duration: "1.0s ●",
+    lines: ["› ● start_process · 1.0s ●", ...longLines],
+  });
+  const [blocks, setBlocks] = createSignal<ActivityBlockView[]>([makeBlock()]);
+  const setup = await testRender(
+    () => <ActivityFeed blocks={blocks()} following={true} />,
+    { width: 80, height: 12 },
+  );
+  await setup.renderOnce();
+
+  for (let index = 0; index < 250; index += 1) {
+    setBlocks([makeBlock()]);
+    await setup.renderOnce();
+  }
+
+  expect(setup.captureCharFrame()).toContain("command fragment 119");
   setup.renderer.destroy();
 });

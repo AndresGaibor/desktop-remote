@@ -69,9 +69,9 @@ test("renders a concise empty state", async () => {
   setup.renderer.destroy();
 });
 
-test("renders a long process target completely without ellipsis", async () => {
+test("renders a bounded preview for long process targets", async () => {
   const store = new SessionStore();
-  const command = "printf BEGIN very long command with src/tui/app.tsx:42:7 warning and FINAL_TOKEN";
+  const command = `printf BEGIN ${"very-long-fragment ".repeat(30)} FINAL_TOKEN`;
   store.consume({
     type: "tool.started",
     callId: "long-1",
@@ -86,8 +86,9 @@ test("renders a long process target completely without ellipsis", async () => {
   );
   await setup.renderOnce();
   const frame = setup.captureCharFrame();
-  expect(frame).toContain("FINAL_TOKEN");
-  expect(frame).not.toContain("…");
+  expect(frame).toContain("BEGIN");
+  expect(frame).not.toContain("FINAL_TOKEN");
+  expect(frame).toContain("…");
   setup.renderer.destroy();
 });
 test("builds contextual footer text for pending activity and detail", () => {

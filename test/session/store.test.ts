@@ -86,6 +86,25 @@ describe("SessionStore", () => {
 });
 
 
+test("SessionStore keeps only the latest 50 calls by default", () => {
+  const store = new SessionStore();
+  for (let index = 1; index <= 75; index += 1) {
+    store.consume({
+      type: "tool.started",
+      callId: `call-${index}`,
+      toolName: "read_file",
+      args: { path: `/tmp/${index}.txt` },
+      metadata: {},
+      startedAt: index,
+    });
+  }
+
+  const snapshot = store.snapshot();
+  expect(snapshot.rows).toHaveLength(50);
+  expect(snapshot.rows[0]?.callId).toBe("call-26");
+  expect(snapshot.rows.at(-1)?.callId).toBe("call-75");
+});
+
 test("SessionStore keeps official auth details for local presentation", () => {
   const store = new SessionStore();
   store.consume({

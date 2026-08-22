@@ -60,7 +60,7 @@ export function buildActivityBlocks(snapshot: SessionSnapshot, width: number): A
     const duration = formatDuration(row.durationMs ?? (row.status === "running" ? now - row.startedAt : 0));
     const runningLabel = row.status === "running" ? `${duration} ●` : duration;
     const lines = [`${selected ? "›" : " "} ${visual.glyph} ${row.toolName} · ${runningLabel}`];
-    if (target) lines.push(...wrapDisplayText(target, contentWidth).map((line) => `    ${line}`));
+    if (target) lines.push(...buildTargetPreview(target, contentWidth).map((line) => `    ${line}`));
     return { callId: row.callId, toolName: row.toolName, selected, tone: visual.tone, status: row.status, lines, target, duration: runningLabel };
   });
 }
@@ -174,6 +174,17 @@ function formatDuration(ms: number): string {
   const seconds = Math.round((ms % 60_000) / 1000);
   return `${minutes}m ${seconds}s`;
 }
+function buildTargetPreview(value: string, width: number, maxLines = 3): string[] {
+  const wrapped = wrapDisplayText(value, width);
+  if (wrapped.length <= maxLines) return wrapped;
+  const visible = wrapped.slice(0, maxLines);
+  const last = visible.at(-1) ?? "";
+  visible[visible.length - 1] = last.length >= width
+    ? `${last.slice(0, Math.max(0, width - 1))}…`
+    : `${last}…`;
+  return visible;
+}
+
 function wrapDisplayText(value: string, width: number): string[] {
   const lines: string[] = [];
   for (const physicalLine of value.split("\n")) {

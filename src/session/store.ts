@@ -18,7 +18,7 @@ export class SessionStore {
   private statusFilter: StatusFilter = "all";
   private selectedCallId: string | undefined;
 
-  constructor(private readonly maxHistory = 1000) {}
+  constructor(private readonly maxHistory = 50) {}
 
   consume(event: RuntimeEvent): void {
     if (event.type === "device.ready") {
