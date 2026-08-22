@@ -9,16 +9,18 @@ import { DaemonIpcServer } from "../../src/daemon/ipc-server";
 import { DaemonSupervisor, type ManagedRuntime } from "../../src/daemon/supervisor";
 import type { RuntimeEvent } from "../../src/runtime/events";
 import { SessionStore } from "../../src/session/store";
+import { makeTestPaths } from "../helpers/desktop-remote-paths";
 
 test("disposing and reattaching a TUI never restarts the daemon runtime", async () => {
   const dir = await mkdtemp(join(tmpdir(), "desktop-remote-e2e-"));
-  const socketPath = join(dir, "daemon.sock");
+  const paths = makeTestPaths(dir, "daemon.sock");
+  const socketPath = paths.socketPath;
   const runtime = new FakeRuntime(4242);
   const supervisor = new DaemonSupervisor({ createRuntime: () => runtime });
   const daemon = new DesktopRemoteDaemon({ supervisor });
   const server = new DaemonIpcServer({
     source: daemon,
-    paths: { appSupportDir: dir, cacheDir: dir, socketPath },
+    paths,
   });
 
   daemon.start();

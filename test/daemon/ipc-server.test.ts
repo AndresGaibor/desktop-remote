@@ -6,7 +6,8 @@ import { join } from "node:path";
 import { DaemonIpcServer, type IpcDaemonSource } from "../../src/daemon/ipc-server";
 import { JsonLineDecoder } from "../../src/ipc/framing";
 import { MAX_IPC_FRAME_BYTES, PROTOCOL_VERSION, encodeFrame, parseServerMessage, type ServerMessage } from "../../src/ipc/protocol";
-import { getDesktopRemotePaths, type DesktopRemotePaths } from "../../src/platform/paths";
+import { getDesktopRemotePaths } from "../../src/platform/paths";
+import { makeTestPaths } from "../helpers/desktop-remote-paths";
 import type { RuntimeEvent } from "../../src/runtime/events";
 import type { RuntimeSessionSnapshot } from "../../src/session/types";
 
@@ -18,14 +19,9 @@ afterEach(async () => {
   for (const server of servers.splice(0)) await server.stop();
 });
 
-async function shortSocketPaths(): Promise<DesktopRemotePaths> {
+async function shortSocketPaths() {
   const dir = await mkdtemp(join(tmpdir(), "dr-"));
-  const socketPath = join(dir, "s.sock");
-  return {
-    appSupportDir: dir,
-    cacheDir: dir,
-    socketPath,
-  };
+  return makeTestPaths(dir);
 }
 
 function snapshot(callCount = 0): RuntimeSessionSnapshot {

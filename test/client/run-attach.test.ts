@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { AlreadyAttachedError, DesktopRemoteIpcClient } from "../../src/client/ipc-client";
 import { attachTui } from "../../src/client/run-attach";
 import { DaemonIpcServer, type IpcDaemonSource } from "../../src/daemon/ipc-server";
-import type { DesktopRemotePaths } from "../../src/platform/paths";
+import { makeTestPaths } from "../helpers/desktop-remote-paths";
 import type { RuntimeSessionSnapshot } from "../../src/session/types";
 
 const servers: DaemonIpcServer[] = [];
@@ -15,7 +15,7 @@ afterEach(async () => {
 
 async function setupServer() {
   const dir = await mkdtemp(join(tmpdir(), "dr-attach-"));
-  const paths: DesktopRemotePaths = { appSupportDir: dir, cacheDir: dir, socketPath: join(dir, "s.sock") };
+  const paths = makeTestPaths(dir);
   const snapshot: RuntimeSessionSnapshot = {
     connection: "online",
     rows: [],

@@ -13,6 +13,13 @@ test("desktop remote macOS paths are stable and directories are user-only", asyn
   expect(paths.appSupportDir).toBe(join(home, "Library", "Application Support", "desktop-remote"));
   expect(paths.cacheDir).toBe(join(home, "Library", "Caches", "desktop-remote"));
   expect(paths.socketPath).toBe(join(paths.cacheDir, "daemon.sock"));
+  expect(paths.binDir).toBe(join(paths.appSupportDir, "bin"));
+  expect(paths.runtimeDir).toBe(join(paths.appSupportDir, "runtime"));
+  expect(paths.logsDir).toBe(join(paths.appSupportDir, "logs"));
+  expect(paths.desiredStatePath).toBe(join(paths.appSupportDir, "desired-state.json"));
+  expect(paths.historyPath).toBe(join(paths.appSupportDir, "history.jsonl"));
+  expect(paths.runtimeMetadataPath).toBe(join(paths.appSupportDir, "runtime.json"));
+  expect(paths.launchAgentPath).toBe(join(home, "Library", "LaunchAgents", "com.desktop-remote.daemon.plist"));
 
   await ensureDesktopRemoteDirectories(paths);
   expect((await stat(paths.appSupportDir)).mode & 0o777).toBe(0o700);
@@ -25,6 +32,10 @@ test("Linux paths follow XDG defaults when no env vars are set", async () => {
   expect(paths.appSupportDir).toBe(join(home, ".local", "state", "desktop-remote"));
   expect(paths.cacheDir).toBe(join(home, ".cache", "desktop-remote"));
   expect(paths.socketPath).toBe(join(paths.cacheDir, "desktop-remote.sock"));
+  expect(paths.binDir).toBe(join(paths.appSupportDir, "bin"));
+  expect(paths.runtimeDir).toBe(join(paths.appSupportDir, "runtime"));
+  expect(paths.logsDir).toBe(join(paths.appSupportDir, "logs"));
+  expect(paths.desiredStatePath).toBe(join(paths.appSupportDir, "desired-state.json"));
 
   await ensureDesktopRemoteDirectories(paths);
   expect((await stat(paths.appSupportDir)).mode & 0o777).toBe(0o700);

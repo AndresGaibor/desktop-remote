@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AlreadyAttachedError, DesktopRemoteIpcClient } from "../../src/client/ipc-client";
 import { DaemonIpcServer, type IpcDaemonSource } from "../../src/daemon/ipc-server";
-import type { DesktopRemotePaths } from "../../src/platform/paths";
+import { makeTestPaths } from "../helpers/desktop-remote-paths";
 import type { RuntimeEvent } from "../../src/runtime/events";
 import type { RuntimeSessionSnapshot } from "../../src/session/types";
 
@@ -16,13 +16,9 @@ afterEach(async () => {
   for (const server of servers.splice(0)) await server.stop();
 });
 
-async function shortSocketPaths(): Promise<DesktopRemotePaths> {
+async function shortSocketPaths() {
   const dir = await mkdtemp(join(tmpdir(), "dr-"));
-  return {
-    appSupportDir: dir,
-    cacheDir: dir,
-    socketPath: join(dir, "s.sock"),
-  };
+  return makeTestPaths(dir);
 }
 
 function makeSnapshot(): RuntimeSessionSnapshot {
