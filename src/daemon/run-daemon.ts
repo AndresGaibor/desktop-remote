@@ -1,6 +1,7 @@
 import { DesktopCommanderRuntime } from "../runtime/desktop-commander-runtime";
 import { DesktopRemoteDaemon } from "./daemon";
 import { DaemonSupervisor, type ManagedRuntime } from "./supervisor";
+import { DaemonIpcServer } from "./ipc-server";
 
 export type DaemonSignal = "SIGINT" | "SIGTERM";
 
@@ -17,6 +18,7 @@ export interface RunDaemonOptions {
   signals?: DaemonSignalSource;
   sleep?: (delayMs: number) => Promise<void>;
   now?: () => number;
+  ipcServer?: DaemonIpcServer;
 }
 
 export async function runDaemon(options: RunDaemonOptions = {}): Promise<void> {
@@ -31,6 +33,7 @@ export async function runDaemon(options: RunDaemonOptions = {}): Promise<void> {
     now: options.now,
   });
   const daemon = new DesktopRemoteDaemon({ supervisor });
+  const ipc = options.ipcServer ?? new DaemonIpcServer({ source: daemon });
   const signals = options.signals ?? PROCESS_SIGNALS;
   let resolveShutdown!: () => void;
   const shutdownRequested = new Promise<void>((resolve) => {
@@ -42,7 +45,9 @@ export async function runDaemon(options: RunDaemonOptions = {}): Promise<void> {
   signals.on("SIGTERM", requestShutdown);
   try {
     daemon.start();
+    await ipc.start();
     await shutdownRequested;
+    await ipc.stop();
     await daemon.stop();
   } finally {
     signals.off("SIGINT", requestShutdown);

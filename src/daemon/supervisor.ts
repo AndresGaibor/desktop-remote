@@ -1,4 +1,5 @@
 import type { RuntimeEvent } from "../runtime/events";
+import { sleep } from "../platform/runtime";
 import { RestartPolicy } from "./restart-policy";
 
 export type SupervisorState =
@@ -51,7 +52,7 @@ export class DaemonSupervisor {
 
   constructor(options: DaemonSupervisorOptions) {
     this.createRuntime = options.createRuntime;
-    this.sleep = options.sleep ?? Bun.sleep;
+    this.sleep = options.sleep ?? sleep;
     this.now = options.now ?? Date.now;
     this.restartPolicy = options.restartPolicy ?? new RestartPolicy();
   }

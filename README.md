@@ -27,10 +27,21 @@ No hay servidor, Supabase, WebSocket, token refresh ni routing propio dentro de 
 
 ## Instalación
 
+### Con Bun (recomendado)
+
 ```bash
 bun install
 bun link
 ```
+
+### Con Node.js (alternativo)
+
+```bash
+npm install
+npm link
+```
+
+Si Bun no está disponible, `desktop-remote` corre bajo Node.js con `tsx` como loader de TypeScript. El binario `desktop-remote` detecta el runtime automáticamente: si está bajo Bun carga `.ts` directamente, si está bajo Node usa la dependencia local `tsx` para cargar TypeScript.
 
 El proyecto fija `@wonderwhy-er/desktop-commander` a la versión validada porque el adaptador actual interpreta el formato de eventos que imprime el CLI oficial.
 
@@ -126,6 +137,12 @@ bun test
 bun run typecheck
 ```
 
+Para verificar compatibilidad con Node.js:
+
+```bash
+node bin/desktop-remote.js --help
+```
+
 Las capas principales son:
 
 ```text
@@ -134,10 +151,62 @@ src/session/   estado local independiente de la UI
 src/logging/   JSONL y redacción
 src/tui/       OpenTUI/Solid
 src/cli/       selección de modo y compatibilidad pipe
+src/platform/  paths multi-OS y utilidades cross-runtime (Bun/Node)
 bin/cli.ts     composición y dispatch
+bin/desktop-remote.js  wrapper cross-runtime (detecta Bun vs Node)
 ```
 
 El adaptador no debe importar módulos privados como `dist/remote-device`, `RemoteChannel` o clientes Supabase de Desktop Commander.
+
+## Modo daemon (segundo plano)
+
+Para ejecutar `desktop-commander` como un proceso en segundo plano sin TUI, usa el subcomando `daemon`:
+
+```bash
+desktop-remote daemon
+```
+
+Esto inicia el supervisor, el servidor IPC y mantiene `desktop-commander remote --persist-session` corriendo con restart automático. El daemon escucha en un socket Unix:
+
+- **macOS**: `~/Library/Caches/desktop-remote/daemon.sock`
+- **Linux/Debian**: `$XDG_RUNTIME_DIR/desktop-remote.sock` (o `~/.cache/desktop-remote/desktop-remote.sock` si `XDG_RUNTIME_DIR` no está definido)
+
+### Ejecutar en segundo plano en Debian
+
+Con `nohup`:
+
+```bash
+nohup desktop-remote daemon &
+```
+
+Con `systemd` (recomendado para producción):
+
+```ini
+# /etc/systemd/system/desktop-remote.service
+[Unit]
+Description=Desktop Remote daemon
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/env desktop-remote daemon
+Restart=on-failure
+User=tu-usuario
+
+[Install]
+WantedBy=default.target
+```
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now desktop-remote
+```
+
+El daemon maneja `SIGINT` y `SIGTERM` con shutdown coordinado: primero detiene `desktop-commander` (SIGINT → SIGKILL tras 5s), luego cierra el servidor IPC.
+
+### Restart policy
+
+Si `desktop-commander` se cae, el supervisor lo reinicia con backoff exponencial: 1s, 2s, 5s, 10s, 30s, 60s. Tras 10 fallos consecutivos entra en modo degradado (retry cada 5 minutos). Una ejecución sana de 5+ minutos resetea el contador.
 
 ## Estado de compatibilidad
 

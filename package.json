@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Interactive TUI and local runtime supervisor for Desktop Commander Remote",
   "bin": {
-    "desktop-remote": "./bin/cli.ts"
+    "desktop-remote": "./bin/desktop-remote.js"
   },
   "module": "src/index.ts",
   "type": "module",
@@ -28,6 +28,7 @@
     "chalk": "^6.0.0",
     "cli-highlight": "^2.1.11",
     "commander": "^15.0.0",
-    "solid-js": "1.9.12"
+    "solid-js": "1.9.12",
+    "tsx": "^4.19.0"
   }
 }

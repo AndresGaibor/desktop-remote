@@ -1,5 +1,6 @@
 import { createWriteStream, type WriteStream } from "node:fs";
 import type { RuntimeEvent } from "../runtime/events";
+import { readTextFile } from "../platform/runtime";
 import { redactEvent } from "./redactor";
 
 export class JsonlEventWriter {
@@ -27,7 +28,7 @@ export class JsonlEventWriter {
 }
 
 export async function readJsonlEvents(path: string): Promise<RuntimeEvent[]> {
-  const text = await Bun.file(path).text();
+  const text = await readTextFile(path);
   const lines = text.split(/\r?\n/);
   const events: RuntimeEvent[] = [];
 

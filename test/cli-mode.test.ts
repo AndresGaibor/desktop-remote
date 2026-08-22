@@ -25,3 +25,24 @@ test("interactive mode forwards explicit Desktop Commander arguments", () => {
     desktopCommanderArgs: ["remote", "--debug"],
   });
 });
+
+test("daemon subcommand selects daemon mode with default args", () => {
+  expect(selectCliMode({ stdinIsTTY: true, args: ["daemon"] })).toEqual({
+    kind: "daemon",
+    desktopCommanderArgs: ["remote", "--persist-session"],
+  });
+});
+
+test("daemon subcommand forwards explicit Desktop Commander arguments", () => {
+  expect(selectCliMode({ stdinIsTTY: true, args: ["daemon", "remote", "--debug"] })).toEqual({
+    kind: "daemon",
+    desktopCommanderArgs: ["remote", "--debug"],
+  });
+});
+
+test("daemon mode works without a TTY for background execution", () => {
+  expect(selectCliMode({ stdinIsTTY: false, args: ["daemon"] })).toEqual({
+    kind: "daemon",
+    desktopCommanderArgs: ["remote", "--persist-session"],
+  });
+});

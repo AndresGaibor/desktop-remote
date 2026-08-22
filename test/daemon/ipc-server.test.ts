@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createConnection, createServer, type Socket } from "node:net";
-import { lstat, mkdtemp, symlink, unlink } from "node:fs/promises";
+import { lstat, mkdtemp, mkdir, symlink, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DaemonIpcServer, type IpcDaemonSource } from "../../src/daemon/ipc-server";
 import { JsonLineDecoder } from "../../src/ipc/framing";
 import { MAX_IPC_FRAME_BYTES, PROTOCOL_VERSION, encodeFrame, parseServerMessage, type ServerMessage } from "../../src/ipc/protocol";
-import { getDesktopRemotePaths } from "../../src/platform/paths";
+import { getDesktopRemotePaths, type DesktopRemotePaths } from "../../src/platform/paths";
 import type { RuntimeEvent } from "../../src/runtime/events";
 import type { RuntimeSessionSnapshot } from "../../src/session/types";
 
@@ -17,6 +17,16 @@ afterEach(async () => {
   for (const socket of sockets.splice(0)) socket.destroy();
   for (const server of servers.splice(0)) await server.stop();
 });
+
+async function shortSocketPaths(): Promise<DesktopRemotePaths> {
+  const dir = await mkdtemp(join(tmpdir(), "dr-"));
+  const socketPath = join(dir, "s.sock");
+  return {
+    appSupportDir: dir,
+    cacheDir: dir,
+    socketPath,
+  };
+}
 
 function snapshot(callCount = 0): RuntimeSessionSnapshot {
   const rows = Array.from({ length: callCount }, (_, index) => ({
@@ -57,8 +67,7 @@ function source(initial = snapshot()): IpcDaemonSource & { emit(event: RuntimeEv
 }
 
 async function tempServer(initial = snapshot(), options: { leaseTimeoutMs?: number } = {}) {
-  const home = await mkdtemp(join(tmpdir(), "desktop-remote-ipc-"));
-  const paths = getDesktopRemotePaths(home);
+  const paths = await shortSocketPaths();
   const daemon = source(initial);
   const server = new DaemonIpcServer({ source: daemon, paths, leaseTimeoutMs: options.leaseTimeoutMs });
   await server.start();
@@ -179,8 +188,7 @@ describe("DaemonIpcServer", () => {
     expect(replacement.messages.some((message) => message.type === "already-attached")).toBe(false);
   });
   test("refuses symlink socket paths", async () => {
-    const home = await mkdtemp(join(tmpdir(), "desktop-remote-ipc-link-"));
-    const paths = getDesktopRemotePaths(home);
+    const paths = await shortSocketPaths();
     const { ensureDesktopRemoteDirectories } = await import("../../src/platform/paths");
     await ensureDesktopRemoteDirectories(paths);
     await symlink("/tmp/not-a-socket", paths.socketPath);
@@ -189,8 +197,7 @@ describe("DaemonIpcServer", () => {
   });
 
   test("removes an owned stale socket but never unlinks a live socket", async () => {
-    const home = await mkdtemp(join(tmpdir(), "desktop-remote-ipc-stale-"));
-    const paths = getDesktopRemotePaths(home);
+    const paths = await shortSocketPaths();
     const { ensureDesktopRemoteDirectories } = await import("../../src/platform/paths");
     await ensureDesktopRemoteDirectories(paths);
     const script = "import socket,sys; s=socket.socket(socket.AF_UNIX); s.bind(sys.argv[1]); s.close()";

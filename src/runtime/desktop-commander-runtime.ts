@@ -1,6 +1,7 @@
 import { spawn as nodeSpawn } from "node:child_process";
 import type { Readable } from "node:stream";
 import { getCommandToSpawn, getSpawnArgs } from "../launcher";
+import { sleep } from "../platform/runtime";
 import type { RuntimeEvent, StreamSource } from "./events";
 import { UpstreamParser } from "./upstream-parser";
 
@@ -113,7 +114,7 @@ export class DesktopCommanderRuntime {
     const timeoutMs = this.options.shutdownTimeoutMs ?? 5000;
     const graceful = await Promise.race([
       closed.then(() => true),
-      Bun.sleep(timeoutMs).then(() => false),
+      sleep(timeoutMs).then(() => false),
     ]);
 
     if (!graceful && this.child === child) {
