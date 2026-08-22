@@ -4,12 +4,17 @@ import { getCommandToSpawn, getSpawnArgs } from "../launcher";
 import type { RuntimeEvent, StreamSource } from "./events";
 import { UpstreamParser } from "./upstream-parser";
 
+export const MAX_UPSTREAM_REMAINDER_BYTES = 2 * 1024 * 1024;
+
 export interface ChildProcessLike {
+  pid?: number;
   stdout: Readable;
   stderr: Readable;
   kill(signal?: NodeJS.Signals): boolean;
   on(event: "close", listener: (code: number | null, signal: NodeJS.Signals | null) => void): this;
   on(event: "error", listener: (error: Error) => void): this;
+  off(event: "close", listener: (code: number | null, signal: NodeJS.Signals | null) => void): this;
+  off(event: "error", listener: (error: Error) => void): this;
 }
 
 export type SpawnProcess = (
@@ -43,6 +48,14 @@ export class DesktopCommanderRuntime {
     this.parser = options.parser ?? new UpstreamParser({ now: options.now });
   }
 
+  get pid(): number | undefined {
+    return this.child?.pid;
+  }
+
+  get running(): boolean {
+    return this.child !== null;
+  }
+
   onEvent(listener: (event: RuntimeEvent) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -63,20 +76,32 @@ export class DesktopCommanderRuntime {
       this.resolveClosed = resolve;
     });
 
-    child.stdout.on("data", (chunk) => this.consumeChunk("stdout", chunk));
-    child.stderr.on("data", (chunk) => this.consumeChunk("stderr", chunk));
-    child.on("error", (error) => {
+    const stdoutHandler = (chunk: Buffer | string) => this.consumeChunk("stdout", chunk);
+    const stderrHandler = (chunk: Buffer | string) => this.consumeChunk("stderr", chunk);
+    const errorHandler = (error: Error) => {
       this.emit({ type: "runtime.error", message: error.message, at: this.now() });
-    });
-    child.on("close", (code, signal) => {
+    };
+    const closeHandler = (code: number | null, signal: NodeJS.Signals | null) => {
       this.flushRemainder("stdout");
       this.flushRemainder("stderr");
       for (const event of this.parser.flush()) this.emit(event);
       this.emit({ type: "runtime.exited", code, signal, at: this.now() });
-      this.child = null;
+      child.stdout.off("data", stdoutHandler);
+      child.stderr.off("data", stderrHandler);
+      child.off("error", errorHandler);
+      child.off("close", closeHandler);
+      if (this.child === child) this.child = null;
+      this.stdoutRemainder = "";
+      this.stderrRemainder = "";
       this.resolveClosed?.();
       this.resolveClosed = null;
-    });
+      this.closedPromise = null;
+    };
+
+    child.stdout.on("data", stdoutHandler);
+    child.stderr.on("data", stderrHandler);
+    child.on("error", errorHandler);
+    child.on("close", closeHandler);
   }
 
   async stop(): Promise<void> {
@@ -97,16 +122,42 @@ export class DesktopCommanderRuntime {
   }
 
   private consumeChunk(source: StreamSource, chunk: Buffer | string) {
-    const text = (source === "stdout" ? this.stdoutRemainder : this.stderrRemainder) +
-      chunk.toString();
-    const lines = text.split("\n");
-    const remainder = lines.pop() ?? "";
+    const incoming = chunk.toString();
+    let remainder = source === "stdout" ? this.stdoutRemainder : this.stderrRemainder;
+    let cursor = 0;
+
+    while (cursor <= incoming.length) {
+      const newline = incoming.indexOf("\n", cursor);
+      if (newline < 0) break;
+      const segment = incoming.slice(cursor, newline);
+      if (Buffer.byteLength(remainder) + Buffer.byteLength(segment) > MAX_UPSTREAM_REMAINDER_BYTES) {
+        this.emitRemainderOverflow(source);
+      } else {
+        const line = remainder + segment;
+        for (const event of this.parser.pushLine(line, source)) this.emit(event);
+      }
+      remainder = "";
+      cursor = newline + 1;
+    }
+
+    const tail = incoming.slice(cursor);
+    if (Buffer.byteLength(remainder) + Buffer.byteLength(tail) > MAX_UPSTREAM_REMAINDER_BYTES) {
+      this.emitRemainderOverflow(source);
+      remainder = "";
+    } else {
+      remainder += tail;
+    }
+
     if (source === "stdout") this.stdoutRemainder = remainder;
     else this.stderrRemainder = remainder;
+  }
 
-    for (const line of lines) {
-      for (const event of this.parser.pushLine(line, source)) this.emit(event);
-    }
+  private emitRemainderOverflow(source: StreamSource) {
+    this.emit({
+      type: "runtime.error",
+      message: `${source} line exceeded 2 MiB observability limit and was discarded`,
+      at: this.now(),
+    });
   }
 
   private flushRemainder(source: StreamSource) {

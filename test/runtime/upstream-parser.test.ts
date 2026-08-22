@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { UpstreamParser } from "../../src/runtime/upstream-parser";
+import { MAX_ACTIVE_CALLS, MAX_PENDING_RESULT_BYTES, UpstreamParser } from "../../src/runtime/upstream-parser";
 
 function createClock(...values: number[]) {
   let index = 0;
@@ -108,4 +108,34 @@ describe("UpstreamParser", () => {
       durationMs: 20,
     });
   });
+
+  test("bounds incomplete multiline tool results and recovers", () => {
+    const parser = new UpstreamParser({ now: () => 100 });
+    parser.pushLine('🔧 Received tool call call-large: read_file {} metadata: {}');
+    parser.pushLine("✅ Tool call read_file completed:");
+
+    const chunk = `"${"x".repeat(64 * 1024)}`;
+    let events = [] as ReturnType<UpstreamParser["pushLine"]>;
+    for (let i = 0; i < Math.ceil(MAX_PENDING_RESULT_BYTES / (64 * 1024)) + 2; i += 1) {
+      events = parser.pushLine(chunk);
+      if (events.some((event) => event.type === "runtime.error")) break;
+    }
+
+    expect(events.some((event) => event.type === "runtime.error" && event.message.includes("512 KiB"))).toBe(true);
+    const recovered = parser.pushLine('🔧 Received tool call after-overflow: read_file {} metadata: {}');
+    expect(recovered.some((event) => event.type === "tool.started" && event.callId === "after-overflow")).toBe(true);
+  });
+
+  test("keeps at most 128 unfinished calls and evicts the oldest tracking entry", () => {
+    const parser = new UpstreamParser({ now: () => 1 });
+    let overflowEvents = [] as ReturnType<UpstreamParser["pushLine"]>;
+    for (let i = 0; i <= MAX_ACTIVE_CALLS; i += 1) {
+      overflowEvents = parser.pushLine(`🔧 Received tool call call-${i}: read_file {} metadata: {}`);
+    }
+
+    expect(parser.activeCallCountForTest()).toBe(MAX_ACTIVE_CALLS);
+    expect(overflowEvents.some((event) => event.type === "runtime.error" && event.message.includes("128"))).toBe(true);
+    expect(overflowEvents.some((event) => event.type === "tool.started" && event.callId === `call-${MAX_ACTIVE_CALLS}`)).toBe(true);
+  });
+
 });

@@ -1,5 +1,8 @@
 import type { RuntimeEvent, StreamSource } from "./events";
 
+export const MAX_PENDING_RESULT_BYTES = 512 * 1024;
+export const MAX_ACTIVE_CALLS = 128;
+
 type ParserState = "normal" | "auth" | "device" | "tool-result";
 
 interface ParserOptions {
@@ -17,11 +20,18 @@ export class UpstreamParser {
   private deviceName = "";
   private pendingResultTool = "";
   private pendingResultLines: string[] = [];
+  private pendingResultBytes = 0;
   private readonly activeByTool = new Map<string, string[]>();
   private readonly startedAtByCall = new Map<string, number>();
+  private readonly toolByCall = new Map<string, string>();
+  private readonly activeOrder: string[] = [];
 
   constructor(options: ParserOptions = {}) {
     this.now = options.now ?? Date.now;
+  }
+
+  activeCallCountForTest(): number {
+    return this.startedAtByCall.size;
   }
 
   pushLine(rawLine: string, source: StreamSource = "stdout"): RuntimeEvent[] {
@@ -67,13 +77,25 @@ export class UpstreamParser {
       return [];
     }
     if (this.state === "tool-result") {
+      const separatorBytes = this.pendingResultLines.length > 0 ? 1 : 0;
+      const nextBytes = this.pendingResultBytes + separatorBytes + Buffer.byteLength(line);
+      if (nextBytes > MAX_PENDING_RESULT_BYTES) {
+        const toolName = this.pendingResultTool;
+        this.resetPendingResult();
+        this.state = "normal";
+        return [
+          this.runtimeError("Tool result exceeded 512 KiB observability limit and was discarded"),
+          this.completeTool(toolName, "[result omitted: exceeded 512 KiB observability limit]"),
+        ];
+      }
+
       this.pendingResultLines.push(line);
+      this.pendingResultBytes = nextBytes;
       const combined = this.pendingResultLines.join("\n").trim();
       if (!canParseToolResult(combined)) return [];
 
       const toolName = this.pendingResultTool;
-      this.pendingResultTool = "";
-      this.pendingResultLines = [];
+      this.resetPendingResult();
       this.state = "normal";
       return [this.completeTool(toolName, extractToolResultText(combined))];
     }
@@ -95,18 +117,16 @@ export class UpstreamParser {
       const toolName = started[2]?.trim();
       if (!callId || !toolName) return this.runtimeLog(line, source);
       const startedAt = this.now();
-      this.startedAtByCall.set(callId, startedAt);
-      const queue = this.activeByTool.get(toolName) ?? [];
-      queue.push(callId);
-      this.activeByTool.set(toolName, queue);
-      return [{
+      const overflow = this.trackCall(callId, toolName, startedAt);
+      const event: RuntimeEvent = {
         type: "tool.started",
         callId,
         toolName,
         args: parseJsonOrText(started[3] ?? "{}"),
         metadata: parseJsonOrText(started[4] ?? "{}"),
         startedAt,
-      }];
+      };
+      return overflow ? [overflow, event] : [event];
     }
     const completed = line.match(/^✅\s*Tool call\s+([\w-]+)\s+completed:\s*(.*)$/);
     if (completed) {
@@ -116,8 +136,15 @@ export class UpstreamParser {
       if (remainder && canParseToolResult(remainder)) {
         return [this.completeTool(toolName, extractToolResultText(remainder))];
       }
+      if (Buffer.byteLength(remainder) > MAX_PENDING_RESULT_BYTES) {
+        return [
+          this.runtimeError("Tool result exceeded 512 KiB observability limit and was discarded"),
+          this.completeTool(toolName, "[result omitted: exceeded 512 KiB observability limit]"),
+        ];
+      }
       this.pendingResultTool = toolName;
       this.pendingResultLines = remainder ? [remainder] : [];
+      this.pendingResultBytes = Buffer.byteLength(remainder);
       this.state = "tool-result";
       return [];
     }
@@ -143,8 +170,7 @@ export class UpstreamParser {
     if (this.state !== "tool-result" || !this.pendingResultTool) return [];
     const toolName = this.pendingResultTool;
     const text = this.pendingResultLines.join("\n").trim();
-    this.pendingResultTool = "";
-    this.pendingResultLines = [];
+    this.resetPendingResult();
     this.state = "normal";
     return [this.completeTool(toolName, extractToolResultText(text))];
   }
@@ -183,7 +209,51 @@ export class UpstreamParser {
     const queue = this.activeByTool.get(toolName);
     const callId = queue?.shift();
     if (queue && queue.length === 0) this.activeByTool.delete(toolName);
+    if (callId) {
+      this.toolByCall.delete(callId);
+      const orderIndex = this.activeOrder.indexOf(callId);
+      if (orderIndex >= 0) this.activeOrder.splice(orderIndex, 1);
+    }
     return callId ?? `unknown-${toolName}-${completedAt}`;
+  }
+
+  private trackCall(callId: string, toolName: string, startedAt: number): RuntimeEvent | undefined {
+    if (this.startedAtByCall.has(callId)) this.removeTrackedCall(callId);
+    this.startedAtByCall.set(callId, startedAt);
+    this.toolByCall.set(callId, toolName);
+    this.activeOrder.push(callId);
+    const queue = this.activeByTool.get(toolName) ?? [];
+    queue.push(callId);
+    this.activeByTool.set(toolName, queue);
+
+    if (this.activeOrder.length <= MAX_ACTIVE_CALLS) return undefined;
+    const oldest = this.activeOrder[0];
+    if (oldest) this.removeTrackedCall(oldest);
+    return this.runtimeError(`Active tool-call tracking exceeded ${MAX_ACTIVE_CALLS}; oldest call was evicted`);
+  }
+
+  private removeTrackedCall(callId: string): void {
+    this.startedAtByCall.delete(callId);
+    const toolName = this.toolByCall.get(callId);
+    this.toolByCall.delete(callId);
+    const orderIndex = this.activeOrder.indexOf(callId);
+    if (orderIndex >= 0) this.activeOrder.splice(orderIndex, 1);
+    if (!toolName) return;
+    const queue = this.activeByTool.get(toolName);
+    if (!queue) return;
+    const queueIndex = queue.indexOf(callId);
+    if (queueIndex >= 0) queue.splice(queueIndex, 1);
+    if (queue.length === 0) this.activeByTool.delete(toolName);
+  }
+
+  private resetPendingResult(): void {
+    this.pendingResultTool = "";
+    this.pendingResultLines = [];
+    this.pendingResultBytes = 0;
+  }
+
+  private runtimeError(message: string): RuntimeEvent {
+    return { type: "runtime.error", message, at: this.now() };
   }
 
   private collectDeviceLine(line: string) {
