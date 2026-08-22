@@ -138,3 +138,45 @@ test("does not duplicate the selected activity target below the feed", async () 
   expect(frame.split("/project/src/index.ts").length - 1).toBe(1);
   setup.renderer.destroy();
 });
+
+
+test("keeps calls visible while the daemon client is reconnecting", async () => {
+  const store = populatedStore();
+  const setup = await testRender(
+    () => <DesktopRemoteApp
+      store={store}
+      snapshot={() => store.snapshot()}
+      connectionState={() => "reconnecting"}
+      refresh={() => {}}
+      onQuit={() => {}}
+    />,
+    { width: 110, height: 24 },
+  );
+  await setup.renderOnce();
+  const frame = setup.captureCharFrame();
+  expect(frame).toContain("reconnecting");
+  expect(frame).toContain("✓ read_file");
+  setup.renderer.destroy();
+});
+
+
+test("keeps retained calls visible while IPC is reconnecting", async () => {
+  const store = populatedStore();
+  const setup = await testRender(
+    () => (
+      <DesktopRemoteApp
+        store={store}
+        snapshot={() => store.snapshot()}
+        connectionState={() => "reconnecting"}
+        refresh={() => {}}
+        onQuit={() => {}}
+      />
+    ),
+    { width: 110, height: 24 },
+  );
+  await setup.renderOnce();
+  const frame = setup.captureCharFrame();
+  expect(frame).toContain("reconnecting");
+  expect(frame).toContain("✓ read_file");
+  setup.renderer.destroy();
+});

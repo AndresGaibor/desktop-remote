@@ -2,10 +2,11 @@
 import { Command } from "commander";
 import { selectCliMode } from "../src/cli/mode";
 import { runPipeMode } from "../src/cli/run-pipe";
-import { JsonlEventWriter, readJsonlEvents } from "../src/logging/jsonl";
-import { DesktopCommanderRuntime } from "../src/runtime/desktop-commander-runtime";
+import { readJsonlEvents } from "../src/logging/jsonl";
+import { DesktopRemoteIpcClient } from "../src/client/ipc-client";
+import { IpcTuiSessionSource, type TuiSessionSource } from "../src/client/session-source";
 import { SessionStore } from "../src/session/store";
-import { runTui, type RuntimeController } from "../src/tui/run-tui";
+import { runDaemon } from "../src/daemon/run-daemon";
 
 const program = new Command();
 
@@ -41,7 +42,16 @@ program
       const events = await readJsonlEvents(mode.file);
       const store = new SessionStore();
       for (const event of events) store.consume(event);
-      await runTui({ runtime: REPLAY_RUNTIME, store });
+      const { runTui } = await import("../src/tui/run-tui");
+      await runTui({ source: REPLAY_SOURCE, store });
+      return;
+    }
+
+    if (mode.kind === "daemon") {
+      await runDaemon({
+        command: options.cmd,
+        args: mode.desktopCommanderArgs,
+      });
       return;
     }
 
@@ -49,22 +59,22 @@ program
       throw new Error("--save-log is for piped compatibility mode; use --log-jsonl with the TUI");
     }
 
-    const runtime = new DesktopCommanderRuntime({
-      command: options.cmd,
-      args: mode.desktopCommanderArgs,
-    });
+    if (options.logJsonl) {
+      throw new Error("--log-jsonl is not available in attached TUI mode; use daemon logging");
+    }
     const store = new SessionStore();
-    const logWriter = options.logJsonl
-      ? new JsonlEventWriter(options.logJsonl)
-      : undefined;
-
-    await runTui({ runtime, store, logWriter });
+    const source = new IpcTuiSessionSource({
+      store,
+      createClient: () => new DesktopRemoteIpcClient(),
+    });
+    const { runTui } = await import("../src/tui/run-tui");
+    await runTui({ source, store });
   });
 
-const REPLAY_RUNTIME: RuntimeController = {
-  onEvent: () => () => {},
-  start: () => {},
+const REPLAY_SOURCE: TuiSessionSource = {
+  start: async () => {},
   stop: async () => {},
+  connectionState: () => "connected",
 };
 
 function parseMaxLines(value: unknown): number {

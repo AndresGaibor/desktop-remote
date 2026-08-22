@@ -1,5 +1,6 @@
 import { For, createEffect, createSignal, type Accessor } from "solid-js";
 import { useKeyboard, useTerminalDimensions } from "@opentui/solid";
+import type { TuiConnectionState } from "../client/session-source";
 import type { SessionStore } from "../session/store";
 import type { SessionSnapshot, StatusFilter } from "../session/types";
 import { ActivityFeed } from "./activity-feed";
@@ -23,6 +24,7 @@ import { TUI_THEME, toneColor } from "./theme";
 export interface DesktopRemoteAppProps {
   store: SessionStore;
   snapshot: Accessor<SessionSnapshot>;
+  connectionState?: Accessor<TuiConnectionState>;
   refresh: () => void;
   onQuit: () => void | Promise<void>;
 }
@@ -38,7 +40,14 @@ export function DesktopRemoteApp(props: DesktopRemoteAppProps) {
   const refresh = () => props.refresh();
   const selected = () => props.snapshot().selectedCall;
   const blocks = () => buildActivityBlocks(props.snapshot(), dimensions().width);
-  const connection = () => connectionVisual(props.snapshot().connection);
+  const connection = () => {
+    const clientState = props.connectionState?.();
+    if (clientState === "reconnecting") return { glyph: "↻", label: "reconnecting", tone: "warning" as const };
+    if (clientState === "connecting") return { glyph: "●", label: "connecting", tone: "warning" as const };
+    if (clientState === "disconnected") return { glyph: "○", label: "disconnected", tone: "muted" as const };
+    if (clientState === "stopped") return { glyph: "○", label: "stopped", tone: "muted" as const };
+    return connectionVisual(props.snapshot().connection);
+  };
   const filterLabel = () => props.snapshot().statusFilter === "all"
     ? ""
     : ` · ${props.snapshot().statusFilter}`;

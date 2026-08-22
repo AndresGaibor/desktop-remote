@@ -1,74 +1,42 @@
 import { expect, test } from "bun:test";
-import type { RuntimeEvent } from "../../src/runtime/events";
-import { SessionStore } from "../../src/session/store";
-import { TuiSessionBridge } from "../../src/tui/run-tui";
+import type {
+  TuiConnectionState,
+  TuiSessionSource,
+} from "../../src/client/session-source";
+import { TuiLifecycle } from "../../src/tui/run-tui";
 
-test("TuiSessionBridge feeds events into store and log", () => {
-  const runtime = new FakeRuntime();
-  const store = new SessionStore();
-  const written: RuntimeEvent[] = [];
-  const writer = { write: (event: RuntimeEvent) => written.push(event), close: async () => {} };
-  let refreshes = 0;
-  const bridge = new TuiSessionBridge({ runtime, store, logWriter: writer });
-
-  bridge.start(() => refreshes++);
-  runtime.emit(deviceReady());
-
-  expect(runtime.starts).toBe(1);
-  expect(store.snapshot().connection).toBe("online");
-  expect(written.map((event) => event.type)).toEqual(["device.ready"]);
-  expect(refreshes).toBe(1);
-});
-
-test("TuiSessionBridge stops runtime before closing the event log", async () => {
-  const order: string[] = [];
-  const runtime = new FakeRuntime(() => order.push("runtime.stop"));
-  const store = new SessionStore();
-  const writer = {
-    write: (_event: RuntimeEvent) => {},
-    close: async () => { order.push("writer.close"); },
-  };
-  const bridge = new TuiSessionBridge({ runtime, store, logWriter: writer });
-
-  bridge.start(() => {});
-  await bridge.stop();
-
-  expect(order).toEqual(["runtime.stop", "writer.close"]);
-  expect(runtime.unsubscribed).toBe(true);
-});
-
-class FakeRuntime {
+class FakeSource implements TuiSessionSource {
   starts = 0;
-  unsubscribed = false;
-  private listener: ((event: RuntimeEvent) => void) | undefined;
-  constructor(private readonly onStop: () => void = () => {}) {}
-  onEvent(listener: (event: RuntimeEvent) => void): () => void {
-    this.listener = listener;
-    return () => {
-      this.listener = undefined;
-      this.unsubscribed = true;
-    };
-  }
+  stops = 0;
+  state: TuiConnectionState = "connected";
 
-  start(): void {
-    this.starts++;
+  async start(refresh: () => void): Promise<void> {
+    this.starts += 1;
+    refresh();
   }
 
   async stop(): Promise<void> {
-    this.onStop();
+    this.stops += 1;
+    this.state = "stopped";
   }
 
-  emit(event: RuntimeEvent): void {
-    this.listener?.(event);
+  connectionState(): TuiConnectionState {
+    return this.state;
   }
 }
 
-function deviceReady(): RuntimeEvent {
-  return {
-    type: "device.ready",
-    user: "user@example.test",
-    deviceId: "device-1",
-    deviceName: "mac.local",
-    at: 1,
-  };
-}
+test("TuiLifecycle owns only the disposable session source", async () => {
+  const source = new FakeSource();
+  let refreshes = 0;
+  let destroys = 0;
+  const lifecycle = new TuiLifecycle(source, () => { destroys += 1; });
+
+  await lifecycle.start(() => { refreshes += 1; });
+  await lifecycle.stop();
+  await lifecycle.stop();
+
+  expect(source.starts).toBe(1);
+  expect(source.stops).toBe(1);
+  expect(refreshes).toBe(1);
+  expect(destroys).toBe(1);
+});

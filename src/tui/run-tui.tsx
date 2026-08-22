@@ -1,48 +1,20 @@
 import { createCliRenderer } from "@opentui/core";
 import { render } from "@opentui/solid";
 import { createSignal } from "solid-js";
-import type { RuntimeEvent } from "../runtime/events";
+import type { TuiConnectionState, TuiSessionSource } from "../client/session-source";
 import type { SessionStore } from "../session/store";
 import type { SessionSnapshot } from "../session/types";
 import { DesktopRemoteApp } from "./app";
 
-export interface RuntimeController {
-  onEvent(listener: (event: RuntimeEvent) => void): () => void;
-  start(): void;
-  stop(): Promise<void>;
-}
-
-export interface EventLogWriter {
-  write(event: RuntimeEvent): void;
-  close(): Promise<void>;
-}
-
-export interface TuiSessionBridgeOptions {
-  runtime: RuntimeController;
-  store: SessionStore;
-  logWriter?: EventLogWriter;
-}
-export class TuiSessionBridge {
-  private readonly runtime: RuntimeController;
-  private readonly store: SessionStore;
-  private readonly logWriter?: EventLogWriter;
-  private unsubscribe: (() => void) | undefined;
+export class TuiLifecycle {
   private stopPromise: Promise<void> | undefined;
+  constructor(
+    private readonly source: TuiSessionSource,
+    private readonly destroy: () => void,
+  ) {}
 
-  constructor(options: TuiSessionBridgeOptions) {
-    this.runtime = options.runtime;
-    this.store = options.store;
-    this.logWriter = options.logWriter;
-  }
-
-  start(refresh: () => void): void {
-    if (this.unsubscribe) throw new Error("TUI session bridge already started");
-    this.unsubscribe = this.runtime.onEvent((event) => {
-      this.store.consume(event);
-      this.logWriter?.write(event);
-      refresh();
-    });
-    this.runtime.start();
+  start(refresh: () => void): Promise<void> {
+    return this.source.start(refresh);
   }
 
   stop(): Promise<void> {
@@ -51,52 +23,61 @@ export class TuiSessionBridge {
   }
 
   private async stopOnce(): Promise<void> {
-    await this.runtime.stop();
-    this.unsubscribe?.();
-    this.unsubscribe = undefined;
-    await this.logWriter?.close();
+    try {
+      await this.source.stop();
+    } finally {
+      this.destroy();
+    }
   }
 }
 
 export interface RunTuiOptions {
-  runtime: RuntimeController;
   store: SessionStore;
-  logWriter?: EventLogWriter;
+  source: TuiSessionSource;
 }
 
 export async function runTui(options: RunTuiOptions): Promise<void> {
   const [snapshot, setSnapshot] = createSignal<SessionSnapshot>(options.store.snapshot());
-  const bridge = new TuiSessionBridge(options);
+  const [connectionState, setConnectionState] = createSignal<TuiConnectionState>(
+    options.source.connectionState(),
+  );
+  let lifecycle: TuiLifecycle;
   const renderer = await createCliRenderer({
     exitOnCtrlC: false,
     clearOnShutdown: true,
     screenMode: "alternate-screen",
   });
 
+  lifecycle = new TuiLifecycle(options.source, () => renderer.destroy());
   let quitting = false;
-  const refresh = () => setSnapshot(options.store.snapshot());
+  const refresh = () => {
+    setSnapshot(options.store.snapshot());
+    setConnectionState(options.source.connectionState());
+  };
   const quit = async () => {
     if (quitting) return;
     quitting = true;
     try {
-      await bridge.stop();
+      await lifecycle.stop();
     } finally {
-      renderer.destroy();
+      // TuiLifecycle owns renderer destruction.
     }
   };
 
   await render(
-    () => (
-      <DesktopRemoteApp
-        store={options.store}
-        snapshot={snapshot}
-        refresh={refresh}
-        onQuit={quit}
-      />
-    ),
+    () => <DesktopRemoteApp
+      store={options.store}
+      snapshot={snapshot}
+      connectionState={connectionState}
+      refresh={refresh}
+      onQuit={quit}
+    />,
     renderer,
   );
 
-  bridge.start(refresh);
   refresh();
+  void lifecycle.start(refresh).catch(async () => {
+    refresh();
+    await quit();
+  });
 }
