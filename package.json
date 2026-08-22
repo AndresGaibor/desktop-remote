@@ -11,7 +11,8 @@
   "scripts": {
     "start": "bun run bin/cli.ts",
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "daemon:dev": "bun run bin/daemon.ts"
   },
   "devDependencies": {
     "@types/bun": "latest"
