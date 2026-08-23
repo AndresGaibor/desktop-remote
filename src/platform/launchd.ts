@@ -27,7 +27,10 @@ export class LaunchdManager {
     const domain = this.domain();
     requireSuccess(await this.options.run("launchctl", ["enable", `${domain}/${LAUNCHD_LABEL}`]), "launchctl enable");
     const bootstrap = await this.options.run("launchctl", ["bootstrap", domain, this.requirePath()]);
-    if (bootstrap.exitCode !== 0 && !/already|service already loaded/i.test(`${bootstrap.stdout}\n${bootstrap.stderr}`)) requireSuccess(bootstrap, "launchctl bootstrap");
+    if (bootstrap.exitCode !== 0 && !/already|service already loaded/i.test(`${bootstrap.stdout}\n${bootstrap.stderr}`)) {
+      const loaded = await this.options.run("launchctl", ["print", `${domain}/${LAUNCHD_LABEL}`]);
+      if (loaded.exitCode !== 0) requireSuccess(bootstrap, "launchctl bootstrap");
+    }
     requireSuccess(await this.options.run("launchctl", ["kickstart", "-k", `${domain}/${LAUNCHD_LABEL}`]), "launchctl kickstart");
   }
 

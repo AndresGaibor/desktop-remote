@@ -34,4 +34,22 @@ describe("LaunchdManager", () => {
     expect(calls).toContainEqual(["launchctl", "disable", "gui/501/com.desktop-remote.daemon"]);
     expect(calls).toContainEqual(["launchctl", "bootout", "gui/501/com.desktop-remote.daemon"]);
   });
+
+  test("treats a generic bootstrap error as already loaded when launchctl print confirms the service", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "dr-launchd-loaded-"));
+    const paths = makeTestPaths(dir);
+    const calls: string[][] = [];
+    const run = async (command: string, args: string[]) => {
+      calls.push([command, ...args]);
+      if (args[0] === "bootstrap") return { exitCode: 5, stdout: "", stderr: "Bootstrap failed: 5: Input/output error" };
+      if (args[0] === "print") return { exitCode: 0, stdout: "state = running\n", stderr: "" };
+      return { exitCode: 0, stdout: "", stderr: "" };
+    };
+    const manager = new LaunchdManager({ paths, run, uid: 501, daemonCommand: "/opt/dr/desktop-remote" });
+
+    await manager.start();
+
+    expect(calls).toContainEqual(["launchctl", "print", "gui/501/com.desktop-remote.daemon"]);
+    expect(calls).toContainEqual(["launchctl", "kickstart", "-k", "gui/501/com.desktop-remote.daemon"]);
+  });
 });
