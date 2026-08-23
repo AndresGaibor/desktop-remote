@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 
 test("piped stdin preserves formatted compatibility output", async () => {
-  const child = Bun.spawn(["bun", "run", "bin/cli.ts"], {
+  const child = Bun.spawn([process.execPath, "run", "bin/cli.ts"], {
     cwd: import.meta.dir + "/..",
     stdin: "pipe",
     stdout: "pipe",

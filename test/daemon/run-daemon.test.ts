@@ -44,7 +44,8 @@ describe("runDaemon", () => {
     const signals = new FakeSignals();
     const history = { loadInto: async () => {}, append: async () => {} } as unknown as HistoryStore;
     const logger = { info: async () => {}, warn: async () => {}, error: async () => {} };
-    const running = runDaemon({ createRuntime: () => runtime, signals, history, logger });
+    const ipc = { start: async () => {}, stop: async () => {} } as unknown as DaemonIpcServer;
+    const running = runDaemon({ createRuntime: () => runtime, signals, history, logger, ipcServer: ipc });
     for (let i = 0; i < 10 && runtime.starts === 0; i += 1) await Bun.sleep(0);
     expect(runtime.starts).toBe(1);
     signals.emit("SIGTERM");
