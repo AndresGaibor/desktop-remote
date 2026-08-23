@@ -31,6 +31,8 @@ export interface ActivityBlockView {
   lines: string[];
   target: string;
   duration: string;
+  startedTime?: string;
+  dayLabel?: string;
 }
 
 export function shouldUseSplitPane(_width: number): boolean {
@@ -53,6 +55,7 @@ export function connectionVisual(status: ConnectionStatus): VisualToken {
 export function buildActivityBlocks(snapshot: SessionSnapshot, width: number): ActivityBlockView[] {
   const contentWidth = Math.max(12, width - 8);
   const now = Date.now();
+  let previousDayKey: string | undefined;
   return snapshot.filteredRows.map((row) => {
     const visual = statusVisual(row.status);
     const selected = snapshot.selectedCall?.callId === row.callId;
@@ -60,8 +63,22 @@ export function buildActivityBlocks(snapshot: SessionSnapshot, width: number): A
     const duration = formatDuration(row.durationMs ?? (row.status === "running" ? now - row.startedAt : 0));
     const runningLabel = row.status === "running" ? `${duration} ●` : duration;
     const lines = [`${selected ? "›" : " "} ${visual.glyph} ${row.toolName} · ${runningLabel}`];
-    if (target) lines.push(...buildTargetPreview(target, contentWidth).map((line) => `    ${line}`));
-    return { callId: row.callId, toolName: row.toolName, selected, tone: visual.tone, status: row.status, lines, target, duration: runningLabel };
+    if (target) lines.push(...buildTargetPreview(target, contentWidth, 2).map((line) => `    ${line}`));
+    const dayKey = formatDayKey(row.startedAt);
+    const dayLabel = dayKey === previousDayKey ? undefined : formatDayLabel(row.startedAt);
+    previousDayKey = dayKey;
+    return {
+      callId: row.callId,
+      toolName: row.toolName,
+      selected,
+      tone: visual.tone,
+      status: row.status,
+      lines,
+      target,
+      duration: runningLabel,
+      startedTime: formatClockTime(row.startedAt),
+      dayLabel,
+    };
   });
 }
 
@@ -128,7 +145,10 @@ export function buildDetailLines(snapshot: SessionSnapshot, width: number): stri
   const lines = [
     `${visual.glyph} ${row.toolName}`,
     `call ${row.callId}`,
-    `status ${visual.label}${row.durationMs === undefined ? "" : ` · ${formatDuration(row.durationMs)}`}`,
+    `status ${visual.label}`,
+    `Started ${formatDateTime(row.startedAt)}`,
+    ...(row.completedAt === undefined ? [] : [`Finished ${formatDateTime(row.completedAt)}`]),
+    ...(row.durationMs === undefined ? [] : [`Duration ${formatExactDuration(row.durationMs)}`]),
     "",
     "Arguments",
     ...formatUnknown(row.args),
@@ -149,6 +169,7 @@ export function buildStatusLine(snapshot: SessionSnapshot, width: number): strin
 }
 function summarizeTarget(row: ToolCallRow): string {
   if (!isRecord(row.args)) return "";
+  if (Object.keys(row.args).length === 0) return "";
   const path = row.args.path ?? row.args.filePath;
   if (typeof path === "string") return path;
   const command = row.args.command;
@@ -174,6 +195,35 @@ function formatDuration(ms: number): string {
   const seconds = Math.round((ms % 60_000) / 1000);
   return `${minutes}m ${seconds}s`;
 }
+
+function formatExactDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(3).replace(/0+$/, "").replace(/\.$/, "")}s`;
+}
+
+const MONTH_LABELS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"] as const;
+
+function formatClockTime(timestamp: number): string {
+  const date = new Date(timestamp);
+  return [date.getHours(), date.getMinutes(), date.getSeconds()]
+    .map((value) => String(value).padStart(2, "0"))
+    .join(":");
+}
+
+function formatDayKey(timestamp: number): string {
+  const date = new Date(timestamp);
+  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+}
+
+function formatDayLabel(timestamp: number): string {
+  const date = new Date(timestamp);
+  return `${date.getDate()} ${MONTH_LABELS[date.getMonth()]}`;
+}
+
+function formatDateTime(timestamp: number): string {
+  return `${formatDayLabel(timestamp)} ${formatClockTime(timestamp)}`;
+}
+
 function buildTargetPreview(value: string, width: number, maxLines = 3): string[] {
   const wrapped = wrapDisplayText(value, width);
   if (wrapped.length <= maxLines) return wrapped;

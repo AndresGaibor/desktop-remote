@@ -15,7 +15,7 @@ export interface ActivityFeedProps {
 export function ActivityFeed(props: ActivityFeedProps) {
   let scrollBox: ScrollBoxRenderable | undefined;
   let clickState: ActivityClickState | undefined;
-  const lineCount = () => props.blocks.reduce((total, block) => total + block.lines.length, 0);
+  const lineCount = () => props.blocks.reduce((total, block) => total + block.lines.length + (block.dayLabel ? 1 : 0), 0);
   const stickyBottom = () => props.following && lineCount() > (props.viewportHeight ?? 10);
   const selectedCallId = () => props.blocks.find((block) => block.selected)?.callId;
 
@@ -57,6 +57,9 @@ export function ActivityFeed(props: ActivityFeedProps) {
               if (click.open) props.onOpen?.(callId);
             }}
           >
+            <text visible={Boolean(block().dayLabel)} fg={TUI_THEME.muted}>
+              {block().dayLabel ? `  ${block().dayLabel}` : ""}
+            </text>
             <box width="100%" flexDirection="row" flexShrink={0}>
               <text fg={TUI_THEME.muted} bg={block().selected ? TUI_THEME.selectedBackground : undefined}>
                 {block().selected ? "› " : "  "}
@@ -69,6 +72,10 @@ export function ActivityFeed(props: ActivityFeedProps) {
               </text>
               <text fg={TUI_THEME.muted} bg={block().selected ? TUI_THEME.selectedBackground : undefined}>
                 {` · ${block().duration}`}
+              </text>
+              <text flexGrow={1} bg={block().selected ? TUI_THEME.selectedBackground : undefined}> </text>
+              <text fg={TUI_THEME.muted} bg={block().selected ? TUI_THEME.selectedBackground : undefined}>
+                {block().startedTime ? ` ${block().startedTime} ` : ""}
               </text>
             </box>
             <Index each={block().lines.slice(1)}>

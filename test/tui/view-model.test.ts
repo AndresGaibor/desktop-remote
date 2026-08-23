@@ -3,6 +3,7 @@ import {
   buildActivityBlocks,
   buildActivityRows,
   buildContextSummary,
+  buildDetailLines,
   buildEmptyState,
   buildSearchCounter,
   connectionVisual,
@@ -81,7 +82,7 @@ test("bounds long activity targets to a short preview", () => {
   const normalized = rendered.replace(/\s+/g, " ");
   expect(normalized).toContain("src/tui/app.tsx:42:7 Live warning");
   expect(rendered).toContain("…");
-  expect(rendered.split("\n")).toHaveLength(4);
+  expect(rendered.split("\n")).toHaveLength(3);
 });
 
 test("builds search match counter inside the active status filter", () => {
@@ -91,4 +92,43 @@ test("builds search match counter inside the active status filter", () => {
   }));
   const custom = { ...base, rows, filteredRows: rows.slice(0, 3), selectedCall: rows[0], statusFilter: "completed" as const };
   expect(buildSearchCounter(custom)).toBe("3 / 4");
+});
+
+test("activity blocks show a compact local time and a day separator only when the day changes", () => {
+  const base = snapshot();
+  const firstAt = new Date(2026, 7, 23, 1, 42, 15).getTime();
+  const secondAt = new Date(2026, 7, 23, 1, 43, 9).getTime();
+  const nextDayAt = new Date(2026, 7, 24, 0, 1, 2).getTime();
+  const rows = [firstAt, secondAt, nextDayAt].map((startedAt, index) => ({
+    ...base.rows[0]!, callId: `call-time-${index}`, startedAt,
+  }));
+  const custom = { ...base, rows, filteredRows: rows, selectedCall: rows[0] };
+  const blocks = buildActivityBlocks(custom, 100);
+
+  expect(blocks[0]?.startedTime).toBe("01:42:15");
+  expect(blocks[0]?.dayLabel).toBe("23 ago");
+  expect(blocks[1]?.startedTime).toBe("01:43:09");
+  expect(blocks[1]?.dayLabel).toBeUndefined();
+  expect(blocks[2]?.startedTime).toBe("00:01:02");
+  expect(blocks[2]?.dayLabel).toBe("24 ago");
+});
+
+test("empty argument objects do not add a useless preview line", () => {
+  const base = snapshot();
+  const row = { ...base.rows[0]!, args: {} };
+  const custom = { ...base, rows: [row], filteredRows: [row], selectedCall: row };
+  expect(buildActivityBlocks(custom, 80)[0]?.lines).toHaveLength(1);
+});
+
+test("detail view includes started, finished and exact duration timestamps", () => {
+  const base = snapshot();
+  const startedAt = new Date(2026, 7, 23, 1, 42, 15, 120).getTime();
+  const completedAt = startedAt + 1_234;
+  const row = { ...base.rows[0]!, startedAt, completedAt, durationMs: 1_234 };
+  const custom = { ...base, rows: [row], filteredRows: [row], selectedCall: row };
+  const detail = buildDetailLines(custom, 120).join("\n");
+
+  expect(detail).toContain("Started 23 ago 01:42:15");
+  expect(detail).toContain("Finished 23 ago 01:42:16");
+  expect(detail).toContain("Duration 1.234s");
 });
