@@ -19,7 +19,7 @@ export function redactEvent(event: RuntimeEvent): RuntimeEvent {
   return redactValue(event) as RuntimeEvent;
 }
 
-function redactValue(value: unknown): unknown {
+export function redactValue(value: unknown): unknown {
   if (typeof value === "string") return redactString(value);
   if (Array.isArray(value)) return value.map(redactValue);
   if (!isRecord(value)) return value;

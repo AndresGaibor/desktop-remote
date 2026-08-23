@@ -3,6 +3,7 @@ import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
 import { dirname, basename, join } from "node:path";
 import type { RuntimeEvent } from "../runtime/events";
+import { redactEvent, redactValue } from "../logging/redactor";
 import { boundRuntimeEvent } from "../session/bounds";
 import { RuntimeSessionStore } from "../session/runtime-store";
 import type { RuntimeSessionSnapshot } from "../session/types";
@@ -40,6 +41,11 @@ export class HistoryStore {
 
   async loadInto(store: RuntimeSessionStore): Promise<void> {
     try {
+      const fileSize = await this.sizeBytes();
+      if (fileSize > this.maxBytes) {
+        this.warn(`Daemon history exceeds maximum size (${fileSize} > ${this.maxBytes})`);
+        return;
+      }
       const input = createReadStream(this.path, { encoding: "utf8" });
       const lines = createInterface({ input, crlfDelay: Infinity });
       try {
@@ -72,7 +78,7 @@ export class HistoryStore {
 
   append(event: RuntimeEvent, snapshot: RuntimeSessionSnapshot): Promise<void> {
     if (event.type === "auth.required") return Promise.resolve();
-    const boundedEvent = boundRuntimeEvent(event);
+    const boundedEvent = redactEvent(boundRuntimeEvent(event));
     const line = `${JSON.stringify({ stateVersion: STATE_VERSION, kind: "event", event: boundedEvent } satisfies HistoryRecord)}\n`;
     return this.enqueue(async () => {
       const currentSize = await this.sizeBytes();
@@ -107,12 +113,13 @@ export class HistoryStore {
 
   private async writeCheckpoint(snapshot: RuntimeSessionSnapshot): Promise<void> {
     const { auth: _auth, ...base } = snapshot;
-    let rows = base.rows.slice(-50);
-    let persisted: PersistedRuntimeSnapshot = { ...base, rows, counts: countRows(rows) };
+    const redactedBase = redactValue(base) as PersistedRuntimeSnapshot;
+    let rows = redactedBase.rows.slice(-50);
+    let persisted: PersistedRuntimeSnapshot = { ...redactedBase, rows, counts: countRows(rows) };
     let content = `${JSON.stringify({ stateVersion: STATE_VERSION, kind: "checkpoint", snapshot: persisted } satisfies HistoryRecord)}\n`;
     while (Buffer.byteLength(content) > this.maxBytes && rows.length > 0) {
       rows = rows.slice(1);
-      persisted = { ...base, rows, counts: countRows(rows) };
+      persisted = { ...redactedBase, rows, counts: countRows(rows) };
       content = `${JSON.stringify({ stateVersion: STATE_VERSION, kind: "checkpoint", snapshot: persisted } satisfies HistoryRecord)}\n`;
     }
     if (Buffer.byteLength(content) > this.maxBytes) {

@@ -46,6 +46,41 @@ describe("HistoryStore", () => {
     expect(text).not.toContain("auth.required");
   });
 
+  test("redacts secrets from persisted tool events and checkpoints", async () => {
+    const path = await tempHistoryPath();
+    const history = new HistoryStore({ path });
+    const store = new RuntimeSessionStore();
+    const start: RuntimeEvent = {
+      type: "tool.started", callId: "secret-call", toolName: "start_process",
+      args: { password: "hunter2", authorization: "Bearer super-secret-token" },
+      metadata: { apiKey: "top-secret-key" }, startedAt: 1,
+    };
+    const complete: RuntimeEvent = {
+      type: "tool.completed", callId: "secret-call", toolName: "start_process",
+      resultText: "Bearer result-secret-token", completedAt: 2,
+    };
+    store.consume(start); await history.append(start, store.snapshot());
+    store.consume(complete); await history.append(complete, store.snapshot());
+    await history.compact(store.snapshot());
+    const text = await readFile(path, "utf8");
+    for (const secret of ["hunter2", "super-secret-token", "top-secret-key", "result-secret-token"]) {
+      expect(text).not.toContain(secret);
+    }
+    expect(text).toContain("[REDACTED]");
+  });
+
+  test("refuses to read a history file larger than its configured hard ceiling", async () => {
+    const path = await tempHistoryPath();
+    const warnings: string[] = [];
+    await appendFile(path, "x".repeat(16_000), "utf8");
+    const history = new HistoryStore({ path, maxBytes: 8_000, onWarning: (message) => warnings.push(message) });
+    const restored = new RuntimeSessionStore();
+    await history.loadInto(restored);
+    expect(restored.snapshot().rows).toHaveLength(0);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(/exceeds|maximum|oversized/i);
+  });
+
   test("compacts automatically before the configured file ceiling", async () => {
     const path = await tempHistoryPath();
     const history = new HistoryStore({ path, compactAtBytes: 2_000, maxBytes: 8_000 });
