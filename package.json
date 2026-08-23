@@ -14,7 +14,9 @@
     "typecheck": "tsc --noEmit",
     "daemon:dev": "bun run bin/daemon.ts",
     "attach:dev": "bun run bin/attach.ts",
-    "build:prod": "bun run scripts/build-production.ts"
+    "build:prod": "bun run scripts/build-production.ts",
+    "test:soak": "bun run scripts/soak.ts",
+    "test:soak:real": "bun run scripts/soak-real.ts"
   },
   "devDependencies": {
     "@types/bun": "latest"

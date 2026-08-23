@@ -7,43 +7,47 @@ TUI interactiva y supervisor local para **Desktop Commander Remote**.
 ## Arquitectura
 
 ```text
-ChatGPT / cliente MCP
+launchd / systemd --user
         │
         ▼
-Infraestructura oficial Desktop Commander
+desktop-remote daemon
         │
-        ▼
-desktop-commander remote --persist-session
-        │
-        ▼
-DesktopCommanderRuntime
-        │
-        ▼
-RuntimeEvent → SessionStore → OpenTUI
-                    └───────→ JSONL redactado
+        ├── supervisor ──> Desktop Commander oficial
+        ├── estado canónico (máx. 50 calls)
+        ├── persistencia/logs acotados
+        └── Unix socket IPC
+                    │
+                    ▼
+             TUI opcional
 ```
 
-No hay servidor, Supabase, WebSocket, token refresh ni routing propio dentro de `desktop-remote`.
+El daemon es el proceso persistente. La TUI es un cliente desechable: abrirla o cerrarla no inicia ni detiene Desktop Commander. No hay servidor HTTP, base de datos, token refresh ni routing propio dentro de `desktop-remote`.
 
 ## Instalación
 
-### Con Bun (recomendado)
+Para desarrollo:
 
 ```bash
 bun install
 bun link
 ```
 
-### Con Node.js (alternativo)
+También se mantiene compatibilidad con Node.js para el daemon y comandos administrativos:
 
 ```bash
 npm install
-npm link
+node bin/desktop-remote.js --help
 ```
 
-Si Bun no está disponible, `desktop-remote` corre bajo Node.js con `tsx` como loader de TypeScript. El binario `desktop-remote` detecta el runtime automáticamente: si está bajo Bun carga `.ts` directamente, si está bajo Node usa la dependencia local `tsx` para cargar TypeScript.
+La TUI OpenTUI requiere Bun actualmente. El daemon no carga OpenTUI y puede ejecutarse con Node.js.
 
-El proyecto fija `@wonderwhy-er/desktop-commander` a la versión validada porque el adaptador actual interpreta el formato de eventos que imprime el CLI oficial.
+Para instalar el servicio persistente del usuario:
+
+```bash
+desktop-remote install
+```
+
+`install` fija Desktop Commander oficial en `0.2.47`, construye y prueba el ejecutable de producción e instala un LaunchAgent en macOS o una unidad `systemd --user` en Linux/Debian. No usa `sudo`.
 
 ## Uso interactivo
 
@@ -51,24 +55,20 @@ El proyecto fija `@wonderwhy-er/desktop-commander` a la versión validada porque
 desktop-remote
 ```
 
-Equivale a supervisar localmente:
+Si el servicio está en estado deseado `running`, el comando verifica que el daemon esté disponible y abre/adjunta la TUI. Si fue detenido intencionalmente, no lo resucita.
 
 ```bash
-desktop-commander remote --persist-session
+desktop-remote install
+desktop-remote start
+desktop-remote attach
+desktop-remote status
+desktop-remote restart
+desktop-remote stop
+desktop-remote logs
+desktop-remote logs --follow
 ```
 
-También puedes reenviar argumentos explícitos al CLI oficial:
-
-```bash
-desktop-remote remote --debug
-desktop-remote remote --persist-session --disable-no-sleep
-```
-
-Para pruebas o wrappers personalizados:
-
-```bash
-desktop-remote --cmd /ruta/a/otro-ejecutable remote --persist-session
-```
+`stop` es persistente hasta un `start` explícito. `restart` falla si el servicio fue detenido intencionalmente.
 
 ### Experiencia de la TUI
 
@@ -89,19 +89,18 @@ El detalle se adapta a la tool. `read_file` muestra origen/rango y el contenido 
 - `/`: buscar por tool, call ID, argumentos, resultado o error; la búsqueda muestra coincidencias `N / total`.
 - `f`: alternar filtro `all → running → completed → failed`.
 - `?`: abrir ayuda temporal.
-- `Ctrl+C`: apagado coordinado; primero Desktop Commander, luego la TUI.
+- `Ctrl+C`: cierra únicamente la TUI; el daemon y Desktop Commander siguen ejecutándose.
 
-## Logging estructurado
+## Logging y persistencia
 
-Para persistir una sesión sin guardar secretos en claro:
+El daemon conserva como máximo las últimas 50 llamadas y las restaura después de reiniciarse. El historial persistente tiene un techo duro de 24 MiB y se compacta de forma atómica.
+
+Los logs operativos rotan en tres archivos de hasta 2 MiB cada uno (~6 MiB total). No registran cada tool call ni heartbeat. Antes de escribir a disco se redactan códigos de verificación, Authorization/Bearer, cookies, passwords, API keys, access tokens y refresh tokens.
 
 ```bash
-desktop-remote --log-jsonl ./session.jsonl
+desktop-remote logs
+desktop-remote logs --follow
 ```
-
-Antes de escribir, el logger redacta códigos de verificación, `Authorization`, Bearer tokens, cookies, passwords, access tokens y refresh tokens dentro de estructuras anidadas.
-
-El evento original sigue disponible en memoria para la TUI; la redacción se aplica a la copia persistida.
 
 ## Replay
 
@@ -158,56 +157,36 @@ bin/desktop-remote.js  wrapper cross-runtime (detecta Bun vs Node)
 
 El adaptador no debe importar módulos privados como `dist/remote-device`, `RemoteChannel` o clientes Supabase de Desktop Commander.
 
-## Modo daemon (segundo plano)
+## Modo daemon y servicios de usuario
 
-Para ejecutar `desktop-commander` como un proceso en segundo plano sin TUI, usa el subcomando `daemon`:
+El daemon se ejecuta sin TUI y mantiene `desktop-commander remote --persist-session` vivo con backoff `1s → 2s → 5s → 10s → 30s → 60s`. Tras 10 fallos consecutivos entra en modo degradado y reintenta cada 5 minutos.
 
-```bash
-desktop-remote daemon
-```
-
-Esto inicia el supervisor, el servidor IPC y mantiene `desktop-commander remote --persist-session` corriendo con restart automático. El daemon escucha en un socket Unix:
+Socket IPC:
 
 - **macOS**: `~/Library/Caches/desktop-remote/daemon.sock`
-- **Linux/Debian**: `$XDG_RUNTIME_DIR/desktop-remote.sock` (o `~/.cache/desktop-remote/desktop-remote.sock` si `XDG_RUNTIME_DIR` no está definido)
+- **Linux/Debian**: `$XDG_RUNTIME_DIR/desktop-remote.sock`, con fallback a `~/.cache/desktop-remote/desktop-remote.sock`
 
-### Ejecutar en segundo plano en Debian
+En macOS se instala `~/Library/LaunchAgents/com.desktop-remote.daemon.plist` con `RunAtLoad`, `KeepAlive` y throttling. En Debian/Linux se instala una unidad en `~/.config/systemd/user/desktop-remote.service` y se gestiona con `systemctl --user`.
 
-Con `nohup`:
+No se depende del `PATH` interactivo del shell: la instalación guarda rutas absolutas del runtime y provisiona Desktop Commander `0.2.47` en una ubicación estable del usuario.
 
-```bash
-nohup desktop-remote daemon &
-```
-
-Con `systemd` (recomendado para producción):
-
-```ini
-# /etc/systemd/system/desktop-remote.service
-[Unit]
-Description=Desktop Remote daemon
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=/usr/bin/env desktop-remote daemon
-Restart=on-failure
-User=tu-usuario
-
-[Install]
-WantedBy=default.target
-```
-
-```bash
-systemctl --user daemon-reload
-systemctl --user enable --now desktop-remote
-```
-
-El daemon maneja `SIGINT` y `SIGTERM` con shutdown coordinado: primero detiene `desktop-commander` (SIGINT → SIGKILL tras 5s), luego cierra el servidor IPC.
-
-### Restart policy
-
-Si `desktop-commander` se cae, el supervisor lo reinicia con backoff exponencial: 1s, 2s, 5s, 10s, 30s, 60s. Tras 10 fallos consecutivos entra en modo degradado (retry cada 5 minutos). Una ejecución sana de 5+ minutos resetea el contador.
+Para desarrollo existe `desktop-remote daemon`, pero en producción se recomienda usar `desktop-remote install/start/stop/restart`.
 
 ## Estado de compatibilidad
 
-La TUI está orientada inicialmente a macOS y Linux. El supervisor utiliza el ejecutable oficial instalado por la dependencia local y deja que Desktop Commander gestione su propio graceful shutdown.
+- macOS: `launchd` de usuario + Bun para la TUI.
+- Debian/Linux: `systemd --user`; daemon y comandos administrativos compatibles con Node.js o Bun.
+- TUI OpenTUI: requiere Bun actualmente.
+- Pipe mode y `replay` se conservan como herramientas de compatibilidad/diagnóstico.
+
+## Gates de estabilidad
+
+```bash
+bun test
+bun run typecheck
+bun run build:prod
+bun run test:soak
+bun run test:soak:real
+```
+
+`test:soak` procesa 1,000,000 de eventos simulados y 1,000 ciclos de attach/detach verificando límites de memoria, FDs y archivos. `test:soak:real` dura 30 minutos por defecto y ejercita timers, sockets y reconexiones reales.
