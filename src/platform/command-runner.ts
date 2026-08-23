@@ -1,4 +1,7 @@
 import { spawn } from "node:child_process";
+import { access } from "node:fs/promises";
+import { constants } from "node:fs";
+import { delimiter, join } from "node:path";
 
 export interface CommandResult {
   exitCode: number;
@@ -26,4 +29,15 @@ export function requireSuccess(result: CommandResult, description: string): Comm
     throw new Error(`${description} failed: ${detail}`);
   }
   return result;
+}
+
+export async function resolveExecutable(name: string, envPath = process.env.PATH ?? ""): Promise<string | undefined> {
+  if (name.startsWith("/")) {
+    try { await access(name, constants.X_OK); return name; } catch { return undefined; }
+  }
+  for (const directory of envPath.split(delimiter).filter(Boolean)) {
+    const candidate = join(directory, name);
+    try { await access(candidate, constants.X_OK); return candidate; } catch {}
+  }
+  return undefined;
 }

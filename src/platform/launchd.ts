@@ -10,6 +10,7 @@ export interface LaunchdManagerOptions {
   run: CommandRunner;
   uid: number;
   daemonCommand: string;
+  daemonArgs?: string[];
 }
 
 export class LaunchdManager {
@@ -18,7 +19,7 @@ export class LaunchdManager {
   async install(): Promise<void> {
     const path = this.requirePath();
     await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-    await writeFile(path, launchAgentPlist(this.options.daemonCommand), { mode: 0o600 });
+    await writeFile(path, launchAgentPlist(this.options.daemonCommand, this.options.daemonArgs ?? ["daemon"]), { mode: 0o600 });
     await chmod(path, 0o600);
   }
 
@@ -32,6 +33,14 @@ export class LaunchdManager {
 
   async restart(): Promise<void> {
     requireSuccess(await this.options.run("launchctl", ["kickstart", "-k", `${this.domain()}/${LAUNCHD_LABEL}`]), "launchctl restart");
+  }
+
+  async status(): Promise<{ loaded: boolean; enabled: boolean; pid?: number; lastExitCode?: number }> {
+    const result = await this.options.run("launchctl", ["print", `${this.domain()}/${LAUNCHD_LABEL}`]);
+    if (result.exitCode !== 0) return { loaded: false, enabled: false };
+    const pid = matchInt(result.stdout, /\bpid\s*=\s*(\d+)/);
+    const lastExitCode = matchInt(result.stdout, /last exit code\s*=\s*(-?\d+)/i);
+    return { loaded: true, enabled: true, pid, lastExitCode };
   }
 
   async stop(): Promise<void> {
@@ -48,10 +57,17 @@ export class LaunchdManager {
   }
 }
 
-export function launchAgentPlist(command: string): string {
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>\n<key>Label</key><string>${xml(command ? LAUNCHD_LABEL : LAUNCHD_LABEL)}</string>\n<key>ProgramArguments</key><array><string>${xml(command)}</string><string>daemon</string></array>\n<key>RunAtLoad</key><true/>\n<key>KeepAlive</key><true/>\n<key>ThrottleInterval</key><integer>10</integer>\n</dict></plist>\n`;
+export function launchAgentPlist(command: string, args: string[] = ["daemon"]): string {
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>\n<key>Label</key><string>${xml(command ? LAUNCHD_LABEL : LAUNCHD_LABEL)}</string>\n<key>ProgramArguments</key><array><string>${xml(command)}</string>${args.map((arg) => `<string>${xml(arg)}</string>`).join("")}</array>\n<key>RunAtLoad</key><true/>\n<key>KeepAlive</key><true/>\n<key>ThrottleInterval</key><integer>10</integer>\n</dict></plist>\n`;
 }
 
 function xml(value: string): string {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+}
+
+function matchInt(text: string, pattern: RegExp): number | undefined {
+  const value = pattern.exec(text)?.[1];
+  if (value === undefined) return undefined;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }

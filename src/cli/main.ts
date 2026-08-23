@@ -1,0 +1,78 @@
+import type { DaemonStatus } from "../daemon/daemon";
+import type { DesiredState } from "../platform/desired-state";
+import type { ServiceManagerStatus } from "../platform/service-controller";
+
+export interface CliService {
+  install(): Promise<void>;
+  start(): Promise<DaemonStatus>;
+  stop(): Promise<void>;
+  restart(): Promise<DaemonStatus>;
+  ensureRunning(): Promise<DaemonStatus>;
+  status(): Promise<DaemonStatus | ServiceManagerStatus>;
+}
+
+export interface CliDependencies {
+  stdinIsTTY: boolean;
+  readDesiredState(): Promise<DesiredState>;
+  service: CliService;
+  attach(): Promise<void>;
+  replay(file: string): Promise<void>;
+  pipe(): Promise<void>;
+  logs(follow: boolean): Promise<void>;
+  daemon(args: string[]): Promise<void>;
+  writeOut(text: string): void;
+  writeErr(text: string): void;
+}
+
+const ADMIN = new Set(["install", "start", "stop", "restart", "status", "logs", "attach", "replay", "daemon"]);
+
+export async function runCli(argv: string[], deps: CliDependencies): Promise<number> {
+  const command = argv[0];
+  try {
+    if (command === "--help" || command === "-h" || command === "help") { deps.writeOut(HELP_TEXT); return 0; }
+    if (command === "--version" || command === "-V") { deps.writeOut("1.0.0"); return 0; }
+    if (!command) {
+      if (!deps.stdinIsTTY) { await deps.pipe(); return 0; }
+      if (await deps.readDesiredState() === "stopped") {
+        deps.writeErr("Desktop Remote is intentionally stopped. Run: desktop-remote start");
+        return 1;
+      }
+      await deps.service.ensureRunning();
+      await deps.attach();
+      return 0;
+    }
+
+    if (!ADMIN.has(command)) throw new Error(`Unknown command: ${command}`);
+    switch (command) {
+      case "install": await deps.service.install(); deps.writeOut("Desktop Remote installed"); return 0;
+      case "start": await deps.service.start(); deps.writeOut("Desktop Remote started"); return 0;
+      case "stop": await deps.service.stop(); deps.writeOut("Desktop Remote stopped"); return 0;
+      case "restart": await deps.service.restart(); deps.writeOut("Desktop Remote restarted"); return 0;
+      case "status": deps.writeOut(JSON.stringify(await deps.service.status(), null, 2)); return 0;
+      case "logs": await deps.logs(argv.includes("--follow")); return 0;
+      case "attach": await deps.attach(); return 0;
+      case "replay": {
+        const file = argv[1]; if (!file) throw new Error("replay requires a file");
+        await deps.replay(file); return 0;
+      }
+      case "daemon": await deps.daemon(argv.slice(1)); return 0;
+    }
+    return 1;
+  } catch (error) {
+    deps.writeErr(error instanceof Error ? error.message : String(error));
+    return 1;
+  }
+}
+
+const HELP_TEXT = `Usage: desktop-remote [command]
+
+Commands:
+  start      Start and enable the background daemon
+  stop       Persistently stop and disable the daemon
+  restart    Restart the daemon
+  status     Show daemon/service status
+  attach     Attach the optional TUI
+  logs       Show bounded daemon logs (--follow to stream)
+  install    Build and install the user service
+  replay     Replay a JSONL diagnostic session
+`;

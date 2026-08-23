@@ -13,7 +13,8 @@
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "daemon:dev": "bun run bin/daemon.ts",
-    "attach:dev": "bun run bin/attach.ts"
+    "attach:dev": "bun run bin/attach.ts",
+    "build:prod": "bun run scripts/build-production.ts"
   },
   "devDependencies": {
     "@types/bun": "latest"

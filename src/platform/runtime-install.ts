@@ -16,7 +16,8 @@ export interface RuntimeMetadata {
 
 export interface RuntimeInstallOptions {
   nodePath: string;
-  bunPath: string;
+  bunPath?: string;
+  npmPath?: string;
   resolveDesktopCommanderEntry?: () => string;
 }
 
@@ -26,7 +27,9 @@ export async function provisionDesktopCommander(
   options: RuntimeInstallOptions,
 ): Promise<RuntimeMetadata> {
   const nodePath = absolute(options.nodePath, "node");
-  const bunPath = absolute(options.bunPath, "bun");
+  const bunPath = options.bunPath ? absolute(options.bunPath, "bun") : undefined;
+  const npmPath = options.npmPath ? absolute(options.npmPath, "npm") : undefined;
+  if (!bunPath && !npmPath) throw new Error("Bun or npm is required to provision Desktop Commander");
   const version = requireSuccess(await run(nodePath, ["--version"]), "Node version check").stdout.trim();
   const major = Number.parseInt(version.replace(/^v/, "").split(".")[0] ?? "", 10);
   if (!Number.isFinite(major) || major < 18) throw new Error(`Node 18 or newer is required; found ${version || "unknown"}`);
@@ -38,7 +41,11 @@ export async function provisionDesktopCommander(
   await writeFile(manifestPath, `${JSON.stringify({ private: true, dependencies: { "@wonderwhy-er/desktop-commander": DESKTOP_COMMANDER_VERSION } }, null, 2)}\n`, { mode: 0o600 });
   await chmod(manifestPath, 0o600);
 
-  requireSuccess(await run(bunPath, ["install", "--production", "--cwd", paths.runtimeDir]), "Desktop Commander install");
+  if (bunPath) {
+    requireSuccess(await run(bunPath, ["install", "--production", "--cwd", paths.runtimeDir]), "Desktop Commander install");
+  } else {
+    requireSuccess(await run(npmPath!, ["install", "--omit=dev", "--prefix", paths.runtimeDir]), "Desktop Commander install");
+  }
   const packagePath = join(paths.runtimeDir, "node_modules", "@wonderwhy-er", "desktop-commander", "package.json");
   const installed = requireSuccess(
     await run(nodePath, ["-p", "require(process.argv[1]).version", packagePath]),
@@ -53,6 +60,17 @@ export async function provisionDesktopCommander(
   await writeAtomicJson(paths.runtimeMetadataPath, metadata, 0o600);
   await chmod(paths.runtimeMetadataPath, 0o600);
   return metadata;
+}
+
+export async function readRuntimeMetadata(path: string): Promise<RuntimeMetadata> {
+  const { readFile } = await import("node:fs/promises");
+  const value: unknown = JSON.parse(await readFile(path, "utf8"));
+  if (!value || typeof value !== "object") throw new Error("Invalid Desktop Remote runtime metadata");
+  const meta = value as Partial<RuntimeMetadata>;
+  if (meta.version !== 1 || meta.desktopCommanderVersion !== DESKTOP_COMMANDER_VERSION || typeof meta.nodePath !== "string" || typeof meta.desktopCommanderEntry !== "string") {
+    throw new Error("Invalid Desktop Remote runtime metadata");
+  }
+  return meta as RuntimeMetadata;
 }
 
 function absolute(value: string, name: string): string {
