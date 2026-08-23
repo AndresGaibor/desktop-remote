@@ -34,8 +34,8 @@ export class HistoryStore {
 
   constructor(options: HistoryStoreOptions) {
     this.path = options.path;
-    this.maxBytes = options.maxBytes ?? HISTORY_MAX_BYTES;
-    this.compactAtBytes = options.compactAtBytes ?? HISTORY_COMPACT_AT_BYTES;
+    this.maxBytes = clampBytes(options.maxBytes ?? HISTORY_MAX_BYTES, HISTORY_MAX_BYTES);
+    this.compactAtBytes = clampBytes(options.compactAtBytes ?? HISTORY_COMPACT_AT_BYTES, this.maxBytes);
     this.onWarning = options.onWarning;
   }
 
@@ -44,9 +44,14 @@ export class HistoryStore {
       const fileSize = await this.sizeBytes();
       if (fileSize > this.maxBytes) {
         this.warn(`Daemon history exceeds maximum size (${fileSize} > ${this.maxBytes})`);
-        return;
       }
-      const input = createReadStream(this.path, { encoding: "utf8" });
+      if (this.maxBytes === 0) return;
+      const input = createReadStream(this.path, {
+        encoding: "utf8",
+        start: 0,
+        end: this.maxBytes - 1,
+        highWaterMark: Math.min(64 * 1024, this.maxBytes),
+      });
       const lines = createInterface({ input, crlfDelay: Infinity });
       try {
         for await (const line of lines) {
@@ -70,6 +75,11 @@ export class HistoryStore {
         }
       } finally {
         lines.close();
+        input.destroy();
+      }
+      const finalSize = await this.sizeBytes();
+      if (finalSize > this.maxBytes) {
+        this.warn(`Daemon history exceeds maximum size (${finalSize} > ${this.maxBytes})`);
       }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
@@ -160,6 +170,11 @@ function countRows(rows: PersistedRuntimeSnapshot["rows"]): PersistedRuntimeSnap
     completed: rows.filter((row) => row.status === "completed").length,
     failed: rows.filter((row) => row.status === "failed").length,
   };
+}
+
+function clampBytes(value: number, ceiling: number): number {
+  if (!Number.isFinite(value)) return ceiling;
+  return Math.max(0, Math.min(ceiling, Math.floor(value)));
 }
 
 function isHistoryRecord(value: unknown): value is HistoryRecord {

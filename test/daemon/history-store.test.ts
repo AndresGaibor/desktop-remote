@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { appendFile, mkdtemp, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { HistoryStore } from "../../src/daemon/history-store";
+import { HISTORY_MAX_BYTES, HistoryStore } from "../../src/daemon/history-store";
 import { RuntimeSessionStore } from "../../src/session/runtime-store";
 import type { RuntimeEvent } from "../../src/runtime/events";
 
@@ -52,33 +52,50 @@ describe("HistoryStore", () => {
     const store = new RuntimeSessionStore();
     const start: RuntimeEvent = {
       type: "tool.started", callId: "secret-call", toolName: "start_process",
-      args: { password: "hunter2", authorization: "Bearer super-secret-token" },
-      metadata: { apiKey: "top-secret-key" }, startedAt: 1,
+      args: { password: "started-password", authorization: "Bearer started-token" },
+      metadata: { apiKey: "metadata-api-key" }, startedAt: 1,
     };
     const complete: RuntimeEvent = {
       type: "tool.completed", callId: "secret-call", toolName: "start_process",
-      resultText: "Bearer result-secret-token", completedAt: 2,
+      resultText: "Bearer completed-result-token", completedAt: 2,
     };
     store.consume(start); await history.append(start, store.snapshot());
     store.consume(complete); await history.append(complete, store.snapshot());
-    await history.compact(store.snapshot());
-    const text = await readFile(path, "utf8");
-    for (const secret of ["hunter2", "super-secret-token", "top-secret-key", "result-secret-token"]) {
-      expect(text).not.toContain(secret);
+
+    const eventText = await readFile(path, "utf8");
+    for (const secret of ["started-password", "started-token", "metadata-api-key", "completed-result-token"]) {
+      expect(eventText).not.toContain(secret);
     }
-    expect(text).toContain("[REDACTED]");
+    expect(eventText).toContain("[REDACTED]");
+
+    await history.compact(store.snapshot());
+    const checkpointText = await readFile(path, "utf8");
+    for (const secret of ["started-password", "started-token", "metadata-api-key", "completed-result-token"]) {
+      expect(checkpointText).not.toContain(secret);
+    }
+    expect(checkpointText).toContain("[REDACTED]");
   });
 
-  test("refuses to read a history file larger than its configured hard ceiling", async () => {
+  test("stops at an injected byte limit before reading a giant history line", async () => {
     const path = await tempHistoryPath();
     const warnings: string[] = [];
-    await appendFile(path, "x".repeat(16_000), "utf8");
-    const history = new HistoryStore({ path, maxBytes: 8_000, onWarning: (message) => warnings.push(message) });
+    const history = new HistoryStore({ path, maxBytes: 512, onWarning: (message) => warnings.push(message) });
+    const prefix = started(1, "valid-prefix");
+    const prefixStore = new RuntimeSessionStore();
+    prefixStore.consume(prefix);
+    await history.append(prefix, prefixStore.snapshot());
+    await appendFile(
+      path,
+      `${JSON.stringify({ stateVersion: 1, kind: "event", event: started(2, "x".repeat(8_000)) })}\n`,
+      "utf8",
+    );
+
     const restored = new RuntimeSessionStore();
     await history.loadInto(restored);
-    expect(restored.snapshot().rows).toHaveLength(0);
+    expect(restored.snapshot().rows.map((row) => row.callId)).toEqual(["call-1"]);
     expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toMatch(/exceeds|maximum|oversized/i);
+    expect(warnings[0]).toMatch(/exceeds|maximum|corrupt|limit/i);
+    expect(HISTORY_MAX_BYTES).toBe(24 * 1024 * 1024);
   });
 
   test("compacts automatically before the configured file ceiling", async () => {
