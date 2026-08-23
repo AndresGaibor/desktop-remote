@@ -9,10 +9,17 @@ export interface CommandResult {
   stderr: string;
 }
 
-export type CommandRunner = (command: string, args: string[]) => Promise<CommandResult>;
+export interface CommandOptions {
+  env?: NodeJS.ProcessEnv;
+}
 
-export const runCommand: CommandRunner = (command, args) => new Promise((resolve, reject) => {
-  const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
+export type CommandRunner = (command: string, args: string[], options?: CommandOptions) => Promise<CommandResult>;
+
+export const runCommand: CommandRunner = (command, args, options) => new Promise((resolve, reject) => {
+  const child = spawn(command, args, {
+    stdio: ["ignore", "pipe", "pipe"],
+    env: options?.env ? { ...process.env, ...options.env } : process.env,
+  });
   let stdout = "";
   let stderr = "";
   child.stdout?.setEncoding("utf8");
