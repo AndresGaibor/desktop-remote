@@ -13,14 +13,20 @@ const SENSITIVE_KEYS = new Set([
   "passwd",
   "secret",
   "apikey",
+  "code",
+  "verificationcode",
+  "usercode",
+  "authcode",
 ]);
+
+const QUERY_PARAMETER_PATTERN = /([?&])([^=&#\s]+)=([^&#\s]*)/g;
 
 export function redactEvent(event: RuntimeEvent): RuntimeEvent {
   return redactValue(event) as RuntimeEvent;
 }
 
 export function redactValue(value: unknown): unknown {
-  if (typeof value === "string") return redactString(value);
+  if (typeof value === "string") return redactText(value);
   if (Array.isArray(value)) return value.map(redactValue);
   if (!isRecord(value)) return value;
 
@@ -37,8 +43,11 @@ function isSensitiveKey(key: string): boolean {
   return SENSITIVE_KEYS.has(normalized);
 }
 
-function redactString(value: string): string {
+export function redactText(value: string): string {
   return value
+    .replace(QUERY_PARAMETER_PATTERN, (match, separator: string, key: string) =>
+      isSensitiveKey(key) ? `${separator}${key}=[REDACTED]` : match,
+    )
     .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [REDACTED]")
     .replace(/\b[A-Z0-9]{4}-[A-Z0-9]{4}\b/g, "[REDACTED]");
 }

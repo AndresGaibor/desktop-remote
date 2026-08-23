@@ -1,10 +1,31 @@
 import { describe, expect, test } from "bun:test";
 import type { RuntimeEvent } from "../../src/runtime/events";
 import { DesktopRemoteDaemon, type SupervisorController } from "../../src/daemon/daemon";
+import type { HistoryStore } from "../../src/daemon/history-store";
 import type { SupervisorStatus } from "../../src/daemon/supervisor";
+
+class FakeLogger {
+  readonly entries: Array<{ level: string; message: string; data?: unknown }> = [];
+
+  info(message: string, data?: unknown): Promise<void> {
+    this.entries.push({ level: "info", message, data });
+    return Promise.resolve();
+  }
+
+  warn(message: string, data?: unknown): Promise<void> {
+    this.entries.push({ level: "warn", message, data });
+    return Promise.resolve();
+  }
+
+  error(message: string, data?: unknown): Promise<void> {
+    this.entries.push({ level: "error", message, data });
+    return Promise.resolve();
+  }
+}
 
 class FakeSupervisor implements SupervisorController {
   readonly listeners = new Set<(event: RuntimeEvent) => void>();
+  readonly statusListeners = new Set<(status: SupervisorStatus) => void>();
   starts = 0;
   stops = 0;
   currentStatus: SupervisorStatus = {
@@ -33,8 +54,18 @@ class FakeSupervisor implements SupervisorController {
     return () => this.listeners.delete(listener);
   }
 
+  onStatus(listener: (status: SupervisorStatus) => void): () => void {
+    this.statusListeners.add(listener);
+    return () => this.statusListeners.delete(listener);
+  }
+
   emit(event: RuntimeEvent): void {
     for (const listener of [...this.listeners]) listener(event);
+  }
+
+  emitStatus(): void {
+    const status = this.status();
+    for (const listener of [...this.statusListeners]) listener(status);
   }
 }
 
@@ -106,5 +137,62 @@ describe("DesktopRemoteDaemon", () => {
     daemon.start();
     supervisor.emit(started("a"));
     expect(daemon.status()).toMatchObject({ state: "starting", retainedCalls: 1 });
+  });
+
+  test("logs lifecycle and operational events without logging tool calls, heartbeats, or raw lines", async () => {
+    const supervisor = new FakeSupervisor();
+    const logger = new FakeLogger();
+    const daemon = new DesktopRemoteDaemon({ supervisor, logger });
+    daemon.start();
+    supervisor.emit({
+      type: "tool.started",
+      callId: "call-1",
+      toolName: "read_file",
+      args: {},
+      metadata: {},
+      startedAt: 1,
+    });
+    supervisor.emit({ type: "runtime.log", source: "stdout", message: "heartbeat", at: 2 });
+    supervisor.emit({
+      type: "auth.required",
+      url: "https://example.test/device?token=secret",
+      code: "ABCD-EFGH",
+      expiresIn: "15 minutes",
+      at: 3,
+    });
+    supervisor.emit({ type: "runtime.error", message: "child failed", at: 4 });
+    supervisor.currentStatus = { ...supervisor.currentStatus, state: "recovering", restartCount: 1 };
+    supervisor.emitStatus();
+
+    const messages = logger.entries.map((entry) => entry.message);
+    expect(messages).toContain("daemon.starting");
+    expect(messages).toContain("authentication required");
+    expect(messages).toContain("runtime error");
+    expect(messages).toContain("supervisor state changed");
+    expect(messages).toContain("supervisor restarted runtime");
+    expect(messages).not.toContain("tool.started");
+    expect(messages).not.toContain("heartbeat");
+    expect(logger.entries.find((entry) => entry.message === "authentication required")?.data).toEqual({
+      expiresIn: "15 minutes",
+    });
+
+    await daemon.stop();
+    expect(logger.entries.map((entry) => entry.message)).toContain("daemon.stopped");
+  });
+
+  test("logs a persistence warning without terminating the daemon", async () => {
+    const supervisor = new FakeSupervisor();
+    const logger = new FakeLogger();
+    const history = {
+      loadInto: async () => {},
+      append: async () => { throw new Error("disk full"); },
+    } as unknown as HistoryStore;
+    const daemon = new DesktopRemoteDaemon({ supervisor, history, logger });
+    await daemon.start();
+    supervisor.emit(started("persisted"));
+    await Bun.sleep(0);
+
+    expect(daemon.status().state).toBe("starting");
+    expect(logger.entries.filter((entry) => entry.message === "daemon persistence warning")).toHaveLength(1);
   });
 });

@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { RuntimeEvent } from "../../src/runtime/events";
 import type { ManagedRuntime } from "../../src/daemon/supervisor";
+import type { HistoryStore } from "../../src/daemon/history-store";
+import type { DaemonIpcServer } from "../../src/daemon/ipc-server";
 import { parseDaemonDevArgs, runDaemon, type DaemonSignalSource } from "../../src/daemon/run-daemon";
 
 class FakeRuntime implements ManagedRuntime {
@@ -40,13 +42,40 @@ describe("runDaemon", () => {
   test("starts foreground daemon and shuts down once on SIGTERM", async () => {
     const runtime = new FakeRuntime();
     const signals = new FakeSignals();
-    const running = runDaemon({ createRuntime: () => runtime, signals });
-    await Bun.sleep(0);
+    const history = { loadInto: async () => {}, append: async () => {} } as unknown as HistoryStore;
+    const logger = { info: async () => {}, warn: async () => {}, error: async () => {} };
+    const running = runDaemon({ createRuntime: () => runtime, signals, history, logger });
+    for (let i = 0; i < 10 && runtime.starts === 0; i += 1) await Bun.sleep(0);
     expect(runtime.starts).toBe(1);
     signals.emit("SIGTERM");
     signals.emit("SIGTERM");
     await running;
     expect(runtime.stops).toBe(1);
+  });
+
+  test("waits for history restore before starting runtime or IPC", async () => {
+    const runtime = new FakeRuntime();
+    const signals = new FakeSignals();
+    let release!: () => void;
+    const loading = new Promise<void>((resolve) => { release = resolve; });
+    const history = { loadInto: async () => loading, append: async () => {} } as unknown as HistoryStore;
+    const ipcCalls: string[] = [];
+    const ipc = {
+      start: async () => { ipcCalls.push("start"); },
+      stop: async () => { ipcCalls.push("stop"); },
+    } as unknown as DaemonIpcServer;
+
+    const running = runDaemon({ createRuntime: () => runtime, signals, history, ipcServer: ipc });
+    await Bun.sleep(0);
+    expect(runtime.starts).toBe(0);
+    expect(ipcCalls).toEqual([]);
+    release();
+    await Bun.sleep(0);
+    expect(runtime.starts).toBe(1);
+    expect(ipcCalls).toEqual(["start"]);
+    signals.emit("SIGTERM");
+    await running;
+    expect(ipcCalls).toEqual(["start", "stop"]);
   });
 
   test("parses the development command override without changing production defaults", () => {

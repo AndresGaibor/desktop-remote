@@ -1,5 +1,9 @@
+import { join } from "node:path";
 import { DesktopCommanderRuntime } from "../runtime/desktop-commander-runtime";
-import { DesktopRemoteDaemon } from "./daemon";
+import { RotatingDaemonLog } from "../logging/rotating-log";
+import { getDesktopRemotePaths, type DesktopRemotePaths } from "../platform/paths";
+import { DesktopRemoteDaemon, type DaemonLogger } from "./daemon";
+import { HistoryStore } from "./history-store";
 import { DaemonSupervisor, type ManagedRuntime } from "./supervisor";
 import { DaemonIpcServer } from "./ipc-server";
 
@@ -19,6 +23,9 @@ export interface RunDaemonOptions {
   sleep?: (delayMs: number) => Promise<void>;
   now?: () => number;
   ipcServer?: DaemonIpcServer;
+  history?: HistoryStore;
+  logger?: DaemonLogger;
+  paths?: DesktopRemotePaths;
 }
 
 export async function runDaemon(options: RunDaemonOptions = {}): Promise<void> {
@@ -32,8 +39,14 @@ export async function runDaemon(options: RunDaemonOptions = {}): Promise<void> {
     sleep: options.sleep,
     now: options.now,
   });
-  const daemon = new DesktopRemoteDaemon({ supervisor });
-  const ipc = options.ipcServer ?? new DaemonIpcServer({ source: daemon });
+  const paths = options.paths ?? getDesktopRemotePaths();
+  const logger = options.logger ?? new RotatingDaemonLog({ path: join(paths.logsDir, "daemon.log") });
+  const history = options.history ?? new HistoryStore({
+    path: paths.historyPath,
+    onWarning: (message) => { void logger.warn("daemon persistence warning", { message }); },
+  });
+  const daemon = new DesktopRemoteDaemon({ supervisor, history, logger });
+  const ipc = options.ipcServer ?? new DaemonIpcServer({ source: daemon, paths });
   const signals = options.signals ?? PROCESS_SIGNALS;
   let resolveShutdown!: () => void;
   const shutdownRequested = new Promise<void>((resolve) => {
@@ -44,7 +57,7 @@ export async function runDaemon(options: RunDaemonOptions = {}): Promise<void> {
   signals.on("SIGINT", requestShutdown);
   signals.on("SIGTERM", requestShutdown);
   try {
-    daemon.start();
+    await daemon.start();
     await ipc.start();
     await shutdownRequested;
     await ipc.stop();
