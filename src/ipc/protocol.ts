@@ -19,6 +19,7 @@ export type ClientMessage =
   | (Versioned & { type: "snapshot.request" })
   | (Versioned & { type: "subscribe" })
   | (Versioned & { type: "status.request"; requestId: string })
+  | (Versioned & { type: "operation.request"; requestId: string; name: string; input: Record<string, unknown> })
   | (Versioned & { type: "ping"; at: number })
   | (Versioned & { type: "detach" })
   | (Versioned & { type: "shutdown" });
@@ -38,6 +39,7 @@ export type ServerMessage =
   | (Versioned & { type: "snapshot.end" })
   | (Versioned & { type: "event"; event: RuntimeEvent })
   | (Versioned & { type: "status"; requestId: string; status: DaemonStatus })
+  | (Versioned & { type: "operation.response"; requestId: string; result?: unknown; error?: string })
   | (Versioned & { type: "pong"; at: number })
   | (Versioned & { type: "already-attached"; attachedSince: number })
   | (Versioned & { type: "error"; code: string; message: string });
@@ -58,6 +60,11 @@ export function parseClientMessage(value: unknown): ClientMessage {
       return message as ClientMessage;
     case "status.request":
       requireString(message.requestId, "status.request requestId");
+      return message as ClientMessage;
+    case "operation.request":
+      requireString(message.requestId, "operation.request requestId");
+      requireString(message.name, "operation.request name");
+      requireRecord(message.input, "operation.request input");
       return message as ClientMessage;
     case "ping":
       requireNumber(message.at, "ping at");
@@ -96,6 +103,10 @@ export function parseServerMessage(value: unknown): ServerMessage {
     case "status":
       requireString(message.requestId, "status requestId");
       requireRecord(message.status, "status payload");
+      return message as ServerMessage;
+    case "operation.response":
+      requireString(message.requestId, "operation.response requestId");
+      if (message.error !== undefined) requireString(message.error, "operation.response error");
       return message as ServerMessage;
     case "pong":
       requireNumber(message.at, "pong at");

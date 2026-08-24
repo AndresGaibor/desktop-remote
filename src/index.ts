@@ -5,7 +5,6 @@ export { parseShellCommand } from "./command-cleaner";
 export * from "./suggestion-engine";
 export * from "./runtime/events";
 export { UpstreamParser } from "./runtime/upstream-parser";
-export { DesktopCommanderRuntime } from "./runtime/desktop-commander-runtime";
 export { SessionStore } from "./session/store";
 export { RuntimeSessionStore } from "./session/runtime-store";
 export * from "./session/bounds";

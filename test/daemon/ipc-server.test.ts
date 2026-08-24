@@ -58,6 +58,7 @@ function source(initial = snapshot()): IpcDaemonSource & { emit(event: RuntimeEv
     }),
     onEvent(listener) { listeners.add(listener); return () => listeners.delete(listener); },
     async stop() { this.stops += 1; },
+    async execute(name, input) { return { name, input }; },
     emit(event) { for (const listener of listeners) listener(event); },
   };
 }
@@ -128,6 +129,25 @@ describe("DaemonIpcServer", () => {
     send(admin.socket, { type: "status.request", requestId: "s1", protocolVersion: PROTOCOL_VERSION });
     const status = await admin.waitFor("status");
     expect(status).toMatchObject({ type: "status", requestId: "s1", status: { state: "online", childPid: 77 } });
+  });
+
+  test("executes operation requests and returns their result", async () => {
+    const { paths } = await tempServer();
+    const client = await connect(paths.socketPath);
+    send(client.socket, { type: "hello", client: "admin", protocolVersion: PROTOCOL_VERSION });
+    await client.waitFor("hello.ack");
+    send(client.socket, {
+      type: "operation.request",
+      protocolVersion: PROTOCOL_VERSION,
+      requestId: "op-1",
+      name: "read_file",
+      input: { path: "/tmp/example" },
+    });
+    await expect(client.waitFor("operation.response")).resolves.toMatchObject({
+      type: "operation.response",
+      requestId: "op-1",
+      result: { name: "read_file", input: { path: "/tmp/example" } },
+    });
   });
 
   test("streams snapshot as begin, one frame per call, and end", async () => {

@@ -6,7 +6,6 @@ import { writeAtomicJson } from "./atomic-file";
 import { resolveExecutable, runCommand, type CommandRunner } from "./command-runner";
 import type { DesktopRemotePaths } from "./paths";
 import { ensureDesktopRemoteDirectories } from "./paths";
-import { provisionDesktopCommander } from "./runtime-install";
 
 export interface InstallProductionOptions {
   run?: CommandRunner;
@@ -21,14 +20,10 @@ export async function installProductionArtifacts(
   options: InstallProductionOptions = {},
 ): Promise<ProductionBuildLayout> {
   const run = options.run ?? runCommand;
-  const nodePath = options.nodePath ?? await resolveExecutable("node");
   const bunPath = options.bunPath ?? await resolveExecutable("bun");
-  const npmPath = options.npmPath ?? await resolveExecutable("npm");
-  if (!nodePath) throw new Error("Node.js 18+ is required to install Desktop Remote");
   if (!bunPath) throw new Error("Bun is required to build/install the OpenTUI client; the daemon can run under Node.js after installation");
 
   await ensureDesktopRemoteDirectories(paths);
-  await provisionDesktopCommander(paths, run, { nodePath, bunPath, npmPath });
 
   const sourceRoot = options.sourceRoot ?? fileURLToPath(new URL("../../", import.meta.url));
   const buildDir = join(paths.appSupportDir, `.build-${process.pid}-${Date.now()}`);

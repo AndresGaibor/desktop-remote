@@ -20,6 +20,8 @@ test("desktop remote macOS paths are stable and directories are user-only", asyn
   expect(paths.historyPath).toBe(join(paths.appSupportDir, "history.jsonl"));
   expect(paths.runtimeMetadataPath).toBe(join(paths.appSupportDir, "runtime.json"));
   expect(paths.launchAgentPath).toBe(join(home, "Library", "LaunchAgents", "com.desktop-remote.daemon.plist"));
+  expect(paths.tunnelProfilePath).toBe(join(home, "Library", "Application Support", "desktop-remote", "tunnel.yaml"));
+  expect(paths.tunnelLaunchAgentPath).toBe(join(home, "Library", "LaunchAgents", "com.desktop-remote.tunnel.plist"));
 
   await ensureDesktopRemoteDirectories(paths);
   expect((await stat(paths.appSupportDir)).mode & 0o777).toBe(0o700);
@@ -36,6 +38,8 @@ test("Linux paths follow XDG defaults when no env vars are set", async () => {
   expect(paths.runtimeDir).toBe(join(paths.appSupportDir, "runtime"));
   expect(paths.logsDir).toBe(join(paths.appSupportDir, "logs"));
   expect(paths.desiredStatePath).toBe(join(paths.appSupportDir, "desired-state.json"));
+  expect(paths.tunnelProfilePath).toBe(join(home, ".local", "state", "desktop-remote", "tunnel.yaml"));
+  expect(paths.tunnelSystemdUserUnitPath).toBe(join(home, ".config", "systemd", "user", "desktop-remote-tunnel.service"));
 
   await ensureDesktopRemoteDirectories(paths);
   expect((await stat(paths.appSupportDir)).mode & 0o777).toBe(0o700);

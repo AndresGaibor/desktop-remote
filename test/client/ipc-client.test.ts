@@ -46,6 +46,7 @@ function makeSource(snapshot = makeSnapshot()): IpcDaemonSource & { emit(event: 
     }),
     onEvent(listener) { listeners.add(listener); return () => listeners.delete(listener); },
     async stop() {},
+    async execute() { return undefined; },
     emit(event) { for (const listener of listeners) listener(event); },
   };
 }

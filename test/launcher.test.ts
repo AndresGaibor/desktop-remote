@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { getCommandToSpawn, getSpawnArgs } from "../src/launcher";
 
-test("uses the installed Desktop Commander executable by default", () => {
-  expect(getCommandToSpawn()).toBe("desktop-commander");
+test("uses the desktop-remote executable by default", () => {
+  expect(getCommandToSpawn()).toBe("desktop-remote");
   expect(getSpawnArgs(undefined, ["remote", "--persist-session"])).toEqual([
     "remote",
     "--persist-session",

@@ -1,11 +1,12 @@
 import { join } from "node:path";
-import { DesktopCommanderRuntime } from "../runtime/desktop-commander-runtime";
 import { RotatingDaemonLog } from "../logging/rotating-log";
 import { getDesktopRemotePaths, type DesktopRemotePaths } from "../platform/paths";
+import type { RuntimeEvent } from "../runtime/events";
 import { DesktopRemoteDaemon, type DaemonLogger } from "./daemon";
 import { HistoryStore } from "./history-store";
 import { DaemonSupervisor, type ManagedRuntime } from "./supervisor";
 import { DaemonIpcServer } from "./ipc-server";
+import { DesktopOperationExecutor } from "../core/executor";
 
 export type DaemonSignal = "SIGINT" | "SIGTERM";
 
@@ -28,12 +29,58 @@ export interface RunDaemonOptions {
   paths?: DesktopRemotePaths;
 }
 
+export interface LocalRuntimeOptions {
+  now?: () => number;
+}
+
+/** Runtime in-process del daemon; no depende de ejecutables ni procesos externos. */
+export class LocalRuntime implements ManagedRuntime {
+  private readonly now: () => number;
+  private readonly listeners = new Set<(event: RuntimeEvent) => void>();
+  private active = false;
+
+  constructor(options: LocalRuntimeOptions = {}) {
+    this.now = options.now ?? Date.now;
+  }
+
+  get pid(): number | undefined {
+    return undefined;
+  }
+
+  get running(): boolean {
+    return this.active;
+  }
+
+  onEvent(listener: (event: RuntimeEvent) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  start(): void {
+    if (this.active) throw new Error("Local runtime already started");
+    this.active = true;
+    this.emit({
+      type: "device.ready",
+      user: "local",
+      deviceId: "desktop-remote",
+      deviceName: "Desktop Remote Local Runtime",
+      at: this.now(),
+    });
+  }
+
+  async stop(): Promise<void> {
+    if (!this.active) return;
+    this.active = false;
+    this.emit({ type: "runtime.exited", code: 0, signal: null, at: this.now() });
+  }
+
+  private emit(event: RuntimeEvent): void {
+    for (const listener of [...this.listeners]) listener(event);
+  }
+}
+
 export async function runDaemon(options: RunDaemonOptions = {}): Promise<void> {
-  const createRuntime = options.createRuntime ?? (() => new DesktopCommanderRuntime({
-    command: options.command,
-    args: options.args,
-    env: options.env,
-  }));
+  const createRuntime = options.createRuntime ?? (() => new LocalRuntime());
   const supervisor = new DaemonSupervisor({
     createRuntime,
     sleep: options.sleep,
@@ -45,7 +92,8 @@ export async function runDaemon(options: RunDaemonOptions = {}): Promise<void> {
     path: paths.historyPath,
     onWarning: (message) => { void logger.warn("daemon persistence warning", { message }); },
   });
-  const daemon = new DesktopRemoteDaemon({ supervisor, history, logger });
+  const operationExecutor = new DesktopOperationExecutor();
+  const daemon = new DesktopRemoteDaemon({ supervisor, history, logger, operationExecutor });
   const ipc = options.ipcServer ?? new DaemonIpcServer({ source: daemon, paths });
   const signals = options.signals ?? PROCESS_SIGNALS;
   let resolveShutdown!: () => void;

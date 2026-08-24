@@ -20,11 +20,14 @@ export interface CliDependencies {
   pipe(): Promise<void>;
   logs(follow: boolean): Promise<void>;
   daemon(args: string[]): Promise<void>;
+  mcpServe(): Promise<void>;
+  tunnelInit(args: string[]): Promise<void>;
+  tunnelDoctor(): Promise<void>;
   writeOut(text: string): void;
   writeErr(text: string): void;
 }
 
-const ADMIN = new Set(["install", "start", "stop", "restart", "status", "logs", "attach", "replay", "daemon"]);
+const ADMIN = new Set(["install", "start", "stop", "restart", "status", "logs", "attach", "replay", "daemon", "mcp", "tunnel"]);
 
 export async function runCli(argv: string[], deps: CliDependencies): Promise<number> {
   const command = argv[0];
@@ -56,6 +59,19 @@ export async function runCli(argv: string[], deps: CliDependencies): Promise<num
         await deps.replay(file); return 0;
       }
       case "daemon": await deps.daemon(argv.slice(1)); return 0;
+      case "mcp": await deps.mcpServe(); return 0;
+      case "tunnel": {
+        const subcommand = argv[1];
+        if (subcommand === "init") {
+          rejectLiteralSecret(argv.slice(2).join(" "));
+          requireOption(argv.slice(2), "--tunnel-id");
+          requireOption(argv.slice(2), "--profile");
+          await deps.tunnelInit(argv.slice(2));
+          return 0;
+        }
+        if (subcommand === "doctor") { await deps.tunnelDoctor(); return 0; }
+        throw new Error("tunnel requires init or doctor");
+      }
     }
     return 1;
   } catch (error) {
@@ -75,4 +91,20 @@ Commands:
   logs       Show bounded daemon logs (--follow to stream)
   install    Build and install the user service
   replay     Replay a JSONL diagnostic session
+  mcp        Start the local MCP server over stdio
+  tunnel init --tunnel-id ID --profile FILE  Save profile and generate an optional tunnel service
+  tunnel doctor                           Validate the local tunnel profile
 `;
+
+function requireOption(args: string[], name: string): string {
+  const index = args.indexOf(name);
+  const value = index >= 0 ? args[index + 1] : undefined;
+  if (!value || value.startsWith("--")) throw new Error(`tunnel init requires ${name}`);
+  return value;
+}
+
+function rejectLiteralSecret(value: string): void {
+  if (/sk-[A-Za-z0-9_-]{8,}|(?:api[-_ ]?key|token)\s*[:=]/i.test(value)) {
+    throw new Error("literal API key/secret is forbidden");
+  }
+}

@@ -1,4 +1,6 @@
 import { platform as nodePlatform } from "node:os";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { DesktopRemoteIpcClient } from "../client/ipc-client";
 import { attachTui } from "../client/run-attach";
 import { parseDaemonDevArgs, runDaemon } from "../daemon/run-daemon";
@@ -8,8 +10,8 @@ import { readDesiredState } from "../platform/desired-state";
 import { DynamicUserServiceManager } from "../platform/dynamic-service-manager";
 import { installProductionArtifacts } from "../platform/install";
 import { getDesktopRemotePaths, type Platform } from "../platform/paths";
+import { doctorTunnel, initializeTunnel } from "../platform/tunnel-install";
 import { runCommand } from "../platform/command-runner";
-import { readRuntimeMetadata } from "../platform/runtime-install";
 import { ServiceController } from "../platform/service-controller";
 import { SessionStore } from "../session/store";
 import type { TuiSessionSource } from "../client/session-source";
@@ -51,17 +53,36 @@ export function createDefaultCliDependencies(): CliDependencies {
       }
       const dev = parseDaemonDevArgs(args);
       if (dev.command) { await runDaemon(dev); return; }
-      try {
-        const metadata = await readRuntimeMetadata(paths.runtimeMetadataPath);
-        await runDaemon({ command: metadata.nodePath, args: [metadata.desktopCommanderEntry, "remote", "--persist-session"] });
-      } catch (error) {
-        if (!isEnoent(error)) throw error;
-        await runDaemon({});
-      }
+      await runDaemon({});
+    },
+    mcpServe: async () => {
+      const child = Bun.spawn([process.execPath, resolve(import.meta.dir, "../../bin/mcp.ts")], {
+        stdin: "inherit",
+        stdout: "inherit",
+        stderr: "inherit",
+      });
+      const exitCode = await child.exited;
+      if (exitCode !== 0) throw new Error(`MCP server exited with code ${exitCode}`);
+    },
+    tunnelInit: async (args) => {
+      const tunnelId = optionValue(args, "--tunnel-id");
+      const profilePath = optionValue(args, "--profile");
+      const result = await initializeTunnel(paths, { tunnelId, profile: await readFile(profilePath, "utf8") });
+      process.stdout.write(`Tunnel profile saved to ${result.profilePath}\nService definition written to ${result.servicePath}\n`);
+    },
+    tunnelDoctor: async () => {
+      process.stdout.write(`${JSON.stringify(await doctorTunnel(paths), null, 2)}\n`);
     },
     writeOut: (text) => process.stdout.write(`${text}\n`),
     writeErr: (text) => process.stderr.write(`desktop-remote: ${text}\n`),
   };
+}
+
+function optionValue(args: string[], name: string): string {
+  const index = args.indexOf(name);
+  const value = index >= 0 ? args[index + 1] : undefined;
+  if (!value || value.startsWith("--")) throw new Error(`tunnel init requires ${name}`);
+  return value;
 }
 
 const REPLAY_SOURCE: TuiSessionSource = {
@@ -76,8 +97,4 @@ async function replay(file: string): Promise<void> {
   for (const event of events) store.consume(event);
   const { runTui } = await import("../tui/run-tui");
   await runTui({ source: REPLAY_SOURCE, store });
-}
-
-function isEnoent(error: unknown): boolean {
-  return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "ENOENT";
 }

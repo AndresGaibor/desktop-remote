@@ -8,9 +8,11 @@ const wrapper = join(repoRoot, "bin", "desktop-remote.js");
 const bunPath = process.execPath;
 const nodePath = await findExecutable("node");
 if (!nodePath) throw new Error("Node.js executable not found for cross-runtime tests");
+const nodeExecutable = nodePath;
 
 async function run(command: string[]) {
-  const child = Bun.spawn(command, {
+  const normalizedCommand = command[0] === nodeExecutable ? [nodeExecutable, "--no-warnings", ...command.slice(1)] : command;
+  const child = Bun.spawn(normalizedCommand, {
     cwd: repoRoot,
     stdout: "pipe",
     stderr: "pipe",
@@ -25,7 +27,7 @@ async function run(command: string[]) {
 
 describe("cross-runtime CLI bootstrap", () => {
   test("loads the TypeScript CLI under Node.js using local tsx", async () => {
-    const result = await run([nodePath, wrapper, "--help"]);
+    const result = await run([nodeExecutable, wrapper, "--help"]);
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("Usage: desktop-remote");
     expect(result.stderr).toBe("");
@@ -42,7 +44,7 @@ describe("cross-runtime CLI bootstrap", () => {
 describe("cross-runtime daemon core", () => {
   test("Node.js can import the daemon graph without OpenTUI", async () => {
     const result = await run([
-      nodePath, "--import", "tsx", "--input-type=module", "-e",
+      nodeExecutable, "--import", "tsx", "--input-type=module", "-e",
       "await import('./src/daemon/run-daemon.ts'); console.log('daemon-ok')",
     ]);
     expect(result.exitCode).toBe(0);
@@ -52,7 +54,7 @@ describe("cross-runtime daemon core", () => {
 
   test("portable sleep keeps Node alive for daemon backoff", async () => {
     const result = await run([
-      nodePath, "--import", "tsx", "--input-type=module", "-e",
+      nodeExecutable, "--import", "tsx", "--input-type=module", "-e",
       "const { sleep } = await import('./src/platform/runtime.ts'); await sleep(20); console.log('awake')",
     ]);
     expect(result.exitCode).toBe(0);

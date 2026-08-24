@@ -20,6 +20,9 @@ function deps(state: "running" | "stopped" = "running") {
     pipe: async () => { calls.push("pipe"); },
     logs: async (follow) => { calls.push(`logs:${follow}`); },
     daemon: async (args) => { calls.push(`daemon:${args.join(" ")}`); },
+    mcpServe: async () => { calls.push("mcp"); },
+    tunnelInit: async (args) => { calls.push(`tunnel-init:${args.join(" ")}`); },
+    tunnelDoctor: async () => { calls.push("tunnel-doctor"); },
     writeOut: (text) => output.push(text),
     writeErr: (text) => output.push(`ERR:${text}`),
   };
@@ -48,5 +51,26 @@ describe("runCli", () => {
     const { d, calls } = deps(); d.stdinIsTTY = false;
     await runCli([], d); await runCli(["replay", "x.jsonl"], d); await runCli(["daemon", "--cmd", "/tmp/fake"], d);
     expect(calls).toEqual(["pipe", "replay:x.jsonl", "daemon:--cmd /tmp/fake"]);
+  });
+  test("starts the MCP server with the mcp command", async () => {
+    const { d, calls } = deps();
+    expect(await runCli(["mcp"], d)).toBe(0);
+    expect(calls).toEqual(["mcp"]);
+  });
+  test("supports tunnel init and doctor commands", async () => {
+    const { d, calls } = deps();
+    expect(await runCli(["tunnel", "init", "--tunnel-id", "t", "--profile", "p"], d)).toBe(0);
+    expect(await runCli(["tunnel", "doctor"], d)).toBe(0);
+    expect(calls).toEqual(["tunnel-init:--tunnel-id t --profile p", "tunnel-doctor"]);
+  });
+  test("requires tunnel init arguments", async () => {
+    const { d, output } = deps();
+    expect(await runCli(["tunnel", "init", "--profile", "p"], d)).toBe(1);
+    expect(output.join("\n")).toMatch(/--tunnel-id/);
+  });
+  test("does not accept a literal tunnel secret", async () => {
+    const { d, output } = deps();
+    expect(await runCli(["tunnel", "init", "--tunnel-id", "t", "--profile", "sk-live-secret-value"], d)).toBe(1);
+    expect(output.join("\n")).toMatch(/literal API key/i);
   });
 });
