@@ -7,6 +7,8 @@ import { HistoryStore } from "./history-store";
 import { DaemonSupervisor, type ManagedRuntime } from "./supervisor";
 import { DaemonIpcServer } from "./ipc-server";
 import { DesktopOperationExecutor } from "../core/executor";
+import { ConfigStore } from "../config/store";
+import { SearchManager } from "../search/manager";
 
 export type DaemonSignal = "SIGINT" | "SIGTERM";
 
@@ -92,7 +94,7 @@ export async function runDaemon(options: RunDaemonOptions = {}): Promise<void> {
     path: paths.historyPath,
     onWarning: (message) => { void logger.warn("daemon persistence warning", { message }); },
   });
-  const operationExecutor = new DesktopOperationExecutor();
+  const operationExecutor = new DesktopOperationExecutor(new SearchManager(), new ConfigStore(paths.configPath ?? join(paths.appSupportDir, "config.json")));
   const daemon = new DesktopRemoteDaemon({ supervisor, history, logger, operationExecutor });
   const ipc = options.ipcServer ?? new DaemonIpcServer({ source: daemon, paths });
   const signals = options.signals ?? PROCESS_SIGNALS;

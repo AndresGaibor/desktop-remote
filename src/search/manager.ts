@@ -1,11 +1,23 @@
 import { readdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join, relative, sep } from "node:path";
 
 export type SearchOptions = {
-  root: string;
+  path?: string;
   pattern: string;
-  mode: "files" | "content";
+  searchType?: "files" | "content";
+  filePattern?: string;
+  ignoreCase?: boolean;
+  includeHidden?: boolean;
   maxResults?: number;
+  literalSearch?: boolean;
+  /** Compatibilidad interna con consumidores anteriores al contrato MCP. */
+  root?: string;
+  mode?: "files" | "content";
+};
+
+type NormalizedSearchOptions = Omit<SearchOptions, "path" | "searchType" | "root" | "mode"> & {
+  path: string;
+  searchType: "files" | "content";
 };
 
 type SearchStatus = "running" | "completed" | "stopped";
@@ -20,13 +32,16 @@ type SearchJob = {
 export class SearchManager {
   private readonly searches = new Map<string, SearchJob>();
 
-  async start(options: SearchOptions): Promise<{ id: string; status: "running" | "completed" }> {
-    if (!options.root || !options.pattern) {
-      throw new Error("root and pattern are required");
+  async start(options: SearchOptions): Promise<{ id: string; sessionId: string; status: "running" | "completed" }> {
+    const path = options.path ?? options.root;
+    const searchType = options.searchType ?? options.mode;
+    if (!path || !options.pattern) {
+      throw new Error("path and pattern are required");
     }
-    if (options.mode !== "files" && options.mode !== "content") {
+    if (searchType !== "files" && searchType !== "content") {
       throw new Error("Unsupported search mode");
     }
+    const normalizedOptions: NormalizedSearchOptions = { ...options, path, searchType };
 
     const id = crypto.randomUUID();
     const job: SearchJob = {
@@ -35,16 +50,16 @@ export class SearchManager {
       results: [],
       task: Promise.resolve(),
     };
-    job.task = this.run(job, options);
+    job.task = this.run(job, normalizedOptions);
     this.searches.set(id, job);
-    return { id, status: "running" };
+    return { id, sessionId: id, status: "running" };
   }
 
   async getMore(
     id: string,
     offset: number,
     length: number,
-  ): Promise<{ id: string; results: string[]; total: number; done: boolean }> {
+  ): Promise<{ id: string; sessionId: string; results: string[]; total: number; done: boolean }> {
     const job = this.searches.get(id);
     if (!job) {
       throw new Error("Search not found");
@@ -57,6 +72,7 @@ export class SearchManager {
     const results = job.results.slice(offset, offset + length);
     return {
       id,
+      sessionId: id,
       results,
       total: job.results.length,
       done: offset + results.length >= job.results.length,
@@ -76,25 +92,32 @@ export class SearchManager {
     return [...this.searches.values()].map(({ id, status }) => ({ id, status }));
   }
 
-  private async run(job: SearchJob, options: SearchOptions): Promise<void> {
+  private async run(job: SearchJob, options: NormalizedSearchOptions): Promise<void> {
     const maxResults = options.maxResults === undefined
       ? Number.POSITIVE_INFINITY
       : Math.max(0, Math.floor(options.maxResults));
-    const files = await this.collectFiles(options.root);
+    const files = await this.collectFiles(options.path, options.includeHidden ?? false);
+    const pattern = createSearchPattern(options.pattern, options);
+    const filePattern = options.filePattern === undefined
+      ? undefined
+      : createGlobPattern(options.filePattern, options.ignoreCase ?? true);
 
     for (const file of files) {
       if (job.status === "stopped" || job.results.length >= maxResults) {
         break;
       }
-      if (options.mode === "files") {
-        if (file.includes(options.pattern)) {
+      if (filePattern !== undefined && !filePattern.test(relative(options.path, file).split(sep).join("/"))) {
+        continue;
+      }
+      if (options.searchType === "files") {
+        if (pattern.test(basename(file))) {
           job.results.push(file);
         }
         continue;
       }
 
       try {
-        if ((await readFile(file, "utf8")).includes(options.pattern)) {
+        if (pattern.test(await readFile(file, "utf8"))) {
           job.results.push(file);
         }
       } catch {
@@ -107,17 +130,40 @@ export class SearchManager {
     }
   }
 
-  private async collectFiles(directory: string): Promise<string[]> {
+  private async collectFiles(directory: string, includeHidden: boolean): Promise<string[]> {
     const entries = await readdir(directory, { withFileTypes: true });
     const files: string[] = [];
     for (const entry of entries) {
+      if (!includeHidden && entry.name.startsWith(".")) continue;
       const path = join(directory, entry.name);
       if (entry.isDirectory()) {
-        files.push(...await this.collectFiles(path));
+        files.push(...await this.collectFiles(path, includeHidden));
       } else if (entry.isFile()) {
         files.push(path);
       }
     }
     return files.sort();
   }
+}
+
+function createSearchPattern(pattern: string, options: SearchOptions): RegExp {
+  const source = options.literalSearch ? escapeRegExp(pattern) : pattern;
+  try {
+    return new RegExp(source, options.ignoreCase === false ? "" : "i");
+  } catch {
+    throw new Error("pattern must be a valid regular expression unless literalSearch is enabled");
+  }
+}
+
+function createGlobPattern(pattern: string, ignoreCase: boolean): RegExp {
+  const source = [...pattern].map((character) => {
+    if (character === "*") return ".*";
+    if (character === "?") return ".";
+    return escapeRegExp(character);
+  }).join("");
+  return new RegExp(`^${source}$`, ignoreCase ? "i" : "");
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

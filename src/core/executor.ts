@@ -1,4 +1,4 @@
-import { readTextFile, writeTextFile } from "../filesystem/files";
+import { appendTextFile, readTextFile, readUrl, writeTextFile } from "../filesystem/files";
 import { createDirectory, listDirectory, moveFile } from "../filesystem/directories";
 import { editBlock } from "../filesystem/edit";
 import { getFileInfo } from "../filesystem/info";
@@ -7,27 +7,66 @@ import { SearchManager } from "../search/manager";
 import { readExcelFile, writeExcelFile, type ExcelMatrix } from "../formats/excel";
 import { writePdfFile } from "../formats/pdf";
 import { writeDocxFile } from "../formats/docx";
+import { ConfigStore } from "../config/store";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 export class DesktopOperationExecutor {
   private readonly processes = new ProcessManager();
   private readonly searches: SearchManager;
 
-  constructor(searches = new SearchManager()) {
+  private readonly configStore: ConfigStore;
+
+  constructor(searches = new SearchManager(), configStore?: ConfigStore) {
     this.searches = searches;
+    this.configStore = configStore ?? new ConfigStore(join(tmpdir(), `desktop-remote-${process.pid}.json`));
   }
 
   async execute(name: string, input: Record<string, unknown>): Promise<unknown> {
+    if (name === "get_config") return this.configStore.getConfig();
+    if (name === "set_config_value") return this.configStore.setConfigValue(requireString(input.key, "key"), input.value);
+    if (name === "get_usage_stats") return this.configStore.getUsageStats();
+    if (name === "get_recent_tool_calls") return this.configStore.getRecentToolCalls(input as { maxResults?: number; toolName?: string; since?: string });
+    const startedAt = new Date();
+    try {
+      const result = await this.executeTool(name, input);
+      await this.configStore.recordToolCall({ toolName: name, arguments: input, result, startedAt: startedAt.toISOString(), completedAt: new Date().toISOString(), durationMs: Date.now() - startedAt.getTime() });
+      return result;
+    } catch (error) {
+      await this.configStore.recordToolCall({ toolName: name, arguments: input, error: error instanceof Error ? error.message : String(error), startedAt: startedAt.toISOString(), completedAt: new Date().toISOString(), durationMs: Date.now() - startedAt.getTime() });
+      throw error;
+    }
+  }
+
+  private async executeTool(name: string, input: Record<string, unknown>): Promise<unknown> {
     if (name === "read_file") {
       const path = requireString(input.path, "path");
-      if (isExcelPath(path)) return { content: await readExcelFile(path), format: "excel" };
-      return readTextFile(path, {
-        offset: optionalInteger(input.offset, "offset"),
+      const readOptions = {
+        offset: optionalNonNegativeInteger(input.offset, "offset"),
         length: optionalInteger(input.length, "length"),
-      });
+      };
+      if (input.isUrl === true) return readUrl(path, readOptions);
+      if (isExcelPath(path)) return { content: await readExcelFile(path), format: "excel" };
+      return readTextFile(path, readOptions);
+    }
+    if (name === "read_multiple_files") {
+      const paths = requireStringArray(input.paths, "paths");
+      const files = await Promise.all(paths.map(async (path) => ({
+        path,
+        ...(input.isUrl === true ? await readUrl(path) : await readTextFile(path)),
+      })));
+      return { files };
     }
     if (name === "write_file") {
       const path = requireString(input.path, "path");
       const content = requireString(input.content, "content");
+      if (input.mode === "append") {
+        if (isExcelPath(path) || isPdfPath(path) || isDocxPath(path)) {
+          throw new Error("append mode is only supported for text files");
+        }
+        await appendTextFile(path, content);
+        return { path, written: true, mode: "append" };
+      }
       if (isExcelPath(path)) {
         await writeExcelFile(path, parseExcelContent(content));
         return { path, written: true, format: "excel" };
@@ -43,8 +82,19 @@ export class DesktopOperationExecutor {
       await writeTextFile(path, content);
       return { path, written: true };
     }
+    if (name === "write_pdf") {
+      const path = requireString(input.outputPath ?? input.path, "path");
+      const content = typeof input.content === "string" ? input.content : JSON.stringify(input.content);
+      await writePdfFile(path, content);
+      return { path, written: true, format: "pdf" };
+    }
     if (name === "create_directory") return createDirectory(requireString(input.path, "path"));
-    if (name === "list_directory") return listDirectory(requireString(input.path, "path"));
+    if (name === "list_directory") {
+      return listDirectory(
+        requireString(input.path, "path"),
+        optionalNonNegativeInteger(input.depth, "depth") ?? 2,
+      );
+    }
     if (name === "move_file") {
       return moveFile(requireString(input.source, "source"), requireString(input.destination, "destination"));
     }
@@ -56,27 +106,66 @@ export class DesktopOperationExecutor {
         requireString(input.new_string, "new_string"),
       );
     }
-    if (name === "start_process") return this.processes.start(requireStringArray(input.command, "command"));
-    if (name === "read_process_output") return this.processes.readOutput(requireString(input.id, "id"));
+    if (name === "start_process") {
+      const command = typeof input.command === "string"
+        ? requireString(input.command, "command")
+        : requireStringArray(input.command, "command");
+      return this.processes.start(command, {
+        shell: optionalString(input.shell, "shell"),
+        timeout_ms: optionalPositiveInteger(input.timeout_ms, "timeout_ms") ?? 30000,
+      });
+    }
+    if (name === "read_process_output") {
+      return this.processes.readOutput(
+        input.pid === undefined ? requireString(input.id, "id") : requirePositiveInteger(input.pid, "pid"),
+        {
+          timeout_ms: optionalPositiveInteger(input.timeout_ms, "timeout_ms"),
+          offset: optionalNonNegativeInteger(input.offset, "offset"),
+          length: optionalPositiveInteger(input.length, "length"),
+        },
+      );
+    }
+    if (name === "interact_with_process") {
+      return this.processes.interact(
+        requirePositiveInteger(input.pid, "pid"),
+        typeof input.input === "string" ? input.input : requireString(input.input, "input"),
+        {
+          timeout_ms: optionalPositiveInteger(input.timeout_ms, "timeout_ms"),
+          wait_for_prompt: input.wait_for_prompt === undefined
+            ? undefined
+            : requireBoolean(input.wait_for_prompt, "wait_for_prompt"),
+        },
+      );
+    }
+    if (name === "force_terminate") return this.processes.terminate(requirePositiveInteger(input.pid, "pid"));
+    if (name === "list_sessions") return this.processes.listSessions();
+    if (name === "list_processes") return this.processes.listProcesses();
+    if (name === "kill_process") return this.processes.kill(requirePositiveInteger(input.pid, "pid"));
     if (name === "start_search") {
-      const mode = requireString(input.mode, "mode");
-      if (mode !== "files" && mode !== "content") throw new Error("mode must be files or content");
       return this.searches.start({
-        root: requireString(input.root, "root"),
+        path: requireString(input.path, "path"),
         pattern: requireString(input.pattern, "pattern"),
-        mode,
+        searchType: input.searchType === undefined ? "files" : requireSearchType(input.searchType),
+        filePattern: optionalString(input.filePattern, "filePattern"),
+        ignoreCase: input.ignoreCase === undefined ? true : requireBoolean(input.ignoreCase, "ignoreCase"),
         maxResults: optionalNonNegativeInteger(input.maxResults, "maxResults"),
+        includeHidden: input.includeHidden === undefined
+          ? false
+          : requireBoolean(input.includeHidden, "includeHidden"),
+        literalSearch: input.literalSearch === undefined
+          ? false
+          : requireBoolean(input.literalSearch, "literalSearch"),
       });
     }
     if (name === "get_more_search_results") {
       return this.searches.getMore(
-        requireString(input.id, "id"),
-        requireNonNegativeInteger(input.offset, "offset"),
-        requireNonNegativeInteger(input.length, "length"),
+        requireString(input.sessionId, "sessionId"),
+        input.offset === undefined ? 0 : requireNonNegativeInteger(input.offset, "offset"),
+        input.length === undefined ? 100 : requireNonNegativeInteger(input.length, "length"),
       );
     }
     if (name === "stop_search") {
-      return this.searches.stop(requireString(input.id, "id"));
+      return this.searches.stop(requireString(input.sessionId, "sessionId"));
     }
     if (name === "list_searches") return this.searches.list();
     throw new Error(`Operation is not implemented: ${name}`);
@@ -109,7 +198,7 @@ function parseExcelContent(content: string): ExcelMatrix {
 }
 
 function requireStringArray(value: unknown, field: string): string[] {
-  if (!Array.isArray(value) || value.length === 0 || value.some((part) => typeof part !== "string" || !part)) {
+  if (!Array.isArray(value) || value.length === 0 || value.some((part) => typeof part !== "string" || !part.trim())) {
     throw new Error(`${field} must be a non-empty string array`);
   }
   return [...value] as string[];
@@ -120,10 +209,37 @@ function requireString(value: unknown, field: string): string {
   return value;
 }
 
+function optionalString(value: unknown, field: string): string | undefined {
+  if (value === undefined) return undefined;
+  return requireString(value, field);
+}
+
+function requireBoolean(value: unknown, field: string): boolean {
+  if (typeof value !== "boolean") throw new Error(`${field} must be a boolean`);
+  return value;
+}
+
+function requireSearchType(value: unknown): "files" | "content" {
+  if (value !== "files" && value !== "content") throw new Error("searchType must be files or content");
+  return value;
+}
+
 function optionalInteger(value: unknown, field: string): number | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== "number" || !Number.isSafeInteger(value)) throw new Error(`${field} must be an integer`);
   return value;
+}
+
+function optionalPositiveInteger(value: unknown, field: string): number | undefined {
+  const integer = optionalInteger(value, field);
+  if (integer !== undefined && integer <= 0) throw new Error(`${field} must be a positive integer`);
+  return integer;
+}
+
+function requirePositiveInteger(value: unknown, field: string): number {
+  const integer = optionalPositiveInteger(value, field);
+  if (integer === undefined) throw new Error(`${field} is required`);
+  return integer;
 }
 
 function optionalNonNegativeInteger(value: unknown, field: string): number | undefined {

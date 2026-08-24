@@ -9,7 +9,7 @@ export function createMcpServer(executor: OperationExecutor): McpServer {
   for (const tool of createToolDefinitions()) {
     server.registerTool(tool.name, {
       description: tool.description,
-      inputSchema: {},
+      inputSchema: tool.inputSchema,
       annotations: tool.annotations,
     }, async (input) => ({
       ...(await handleOperation(tool.name, input as Record<string, unknown>)),

@@ -15,6 +15,7 @@ const OPERATIONS: readonly OperationDefinition[] = [
   operation("move_file", "filesystem", true),
   operation("get_file_info", "filesystem"),
   operation("edit_block", "filesystem", true),
+  operation("write_pdf", "filesystem", true),
   operation("start_search", "search"),
   operation("get_more_search_results", "search"),
   operation("stop_search", "search", true),

@@ -12,6 +12,7 @@ export interface DesktopRemotePaths {
   logsDir: string;
   socketPath: string;
   desiredStatePath: string;
+  configPath?: string;
   historyPath: string;
   runtimeMetadataPath: string;
   tunnelProfilePath: string;
@@ -72,9 +73,10 @@ function commonPaths(
     logsDir: join(appSupportDir, "logs"),
     socketPath,
     desiredStatePath: join(appSupportDir, "desired-state.json"),
+    configPath: join(appSupportDir, "config.json"),
     historyPath: join(appSupportDir, "history.jsonl"),
     runtimeMetadataPath: join(appSupportDir, "runtime.json"),
-     tunnelProfilePath: join(appSupportDir, "tunnel.yaml"),
+    tunnelProfilePath: join(appSupportDir, "tunnel.yaml"),
     ...platformPaths,
   };
 }

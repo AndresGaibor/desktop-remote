@@ -2,7 +2,7 @@
 
 ## 1. Visión y Propósito
 
-Reemplazar `desktop-commander-runtime` y `@wonderwhy-er/desktop-commander` por un MCP local propio que exponga las mismas 26 tools públicas con schemas Zod tipados y ejecución local completa. El túnel ya existe; esta tarea solo cubre el catálogo, los schemas de transporte y la implementación pendiente.
+Reemplazar `desktop-commander-runtime` y `@wonderwhy-er/desktop-commander` por un MCP local propio que exponga las mismas 24 tools del cliente Desktop Commander con schemas Zod tipados y ejecución local completa. El túnel ya existe; esta tarea solo cubre el catálogo, los schemas de transporte y la implementación pendiente.
 
 **Objetivo:** Un cliente MCP (ChatGPT, Codex, etc.) puede listar tools con argumentos correctos y ejecutarlas sin `FORBIDDEN` ni `Operation is not implemented`.
 
@@ -10,8 +10,8 @@ Reemplazar `desktop-commander-runtime` y `@wonderwhy-er/desktop-commander` por u
 
 ### 2.1 Incluido
 
-- 26 tools públicas con schemas Zod completos y `inputSchema` MCP correcto
-- Executor local para las 26 tools (sin `give_feedback_to_desktop_commander`)
+- 24 tools públicas del cliente Desktop Commander con schemas Zod completos y `inputSchema` MCP correcto
+- Executor local para las 24 tools (sin `give_feedback_to_desktop_commander` ni `get_prompts`)
 - Parámetros de search alineados con la referencia (`path`, `pattern`, `searchType`)
 - `write_file` con modo `append`
 - `read_file` con soporte para URLs (usando fetch)
@@ -333,6 +333,6 @@ Para cada tool pendiente, seguir ciclo TDD:
 - `bun test` pasa al 100% con coverage > 80%
 - `bun run typecheck` sin errores
 - `bun run build:prod` genera binario sin errores
-- MCP `tools/list` retorna 26 tools con `inputSchema` no vacío
+- MCP `tools/list` retorna 24 tools con `inputSchema` no vacío
 - Cada tool responde correctamente cuando se le pasan argumentos válidos
 - Operaciones no implementadas devuelven `Operation is not implemented` (no FORBIDDEN ni crash)
