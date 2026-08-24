@@ -13,7 +13,7 @@ export function createOperationHandler(executor: OperationExecutor) {
     try {
       const result = await executor.execute(name, input);
       return {
-        content: [{ type: "text", text: JSON.stringify(result) }],
+        content: [{ type: "text", text: result === undefined ? "" : JSON.stringify(result) }],
         structuredContent: result,
       };
     } catch (error) {
