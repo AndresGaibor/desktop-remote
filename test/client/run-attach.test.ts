@@ -26,6 +26,7 @@ async function setupServer() {
     status: () => ({ state: "online", childPid: 77, restartCount: 0, consecutiveFailures: 0, startedAt: 1, retainedCalls: 0 }),
     onEvent: () => () => {},
     stop: async () => {},
+    execute: async () => undefined,
   };
   const server = new DaemonIpcServer({ source, paths });
   await server.start();

@@ -14,6 +14,19 @@ describe("IPC protocol", () => {
     })).toEqual({ type: "hello", protocolVersion: 1, client: "visual" });
     expect(parseClientMessage({ type: "ping", protocolVersion: 1, at: 42 }))
       .toMatchObject({ type: "ping", at: 42 });
+    expect(parseClientMessage({
+      type: "operation.request",
+      protocolVersion: 1,
+      requestId: "op-1",
+      name: "read_file",
+      input: { path: "/tmp/example" },
+    })).toEqual({
+      type: "operation.request",
+      protocolVersion: 1,
+      requestId: "op-1",
+      name: "read_file",
+      input: { path: "/tmp/example" },
+    });
   });
 
   test("rejects wrong client protocol versions and unknown message types", () => {
@@ -32,5 +45,16 @@ describe("IPC protocol", () => {
       .toThrow(/protocol version/i);
     expect(() => parseServerMessage({ type: "unknown", protocolVersion: 1 }))
       .toThrow(/unknown server message/i);
+    expect(parseServerMessage({
+      type: "operation.response",
+      protocolVersion: 1,
+      requestId: "op-1",
+      result: { contents: [] },
+    })).toEqual({
+      type: "operation.response",
+      protocolVersion: 1,
+      requestId: "op-1",
+      result: { contents: [] },
+    });
   });
 });

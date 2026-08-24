@@ -1,8 +1,8 @@
 # desktop-remote
 
-TUI interactiva y supervisor local para **Desktop Commander Remote**.
+TUI interactiva, servidor MCP propio y supervisor local para `desktop-remote`.
 
-`desktop-remote` no reemplaza ni replica la infraestructura remota de Desktop Commander. El ejecutable oficial `desktop-commander` sigue siendo responsable de autenticación, sesión, transporte, heartbeat, routing y comunicación MCP. Este proyecto se limita a ejecutar ese proceso local, interpretar sus eventos y ofrecer una experiencia de terminal más clara.
+`desktop-remote` proporciona su propio daemon y servidor MCP local, una TUI opcional y un `tunnel-client` opcional para conectividad segura. El túnel se configura como un servicio de usuario separado.
 
 ## Arquitectura
 
@@ -12,7 +12,7 @@ launchd / systemd --user
         ▼
 desktop-remote daemon
         │
-        ├── supervisor ──> Desktop Commander oficial
+        ├── supervisor ──> proceso configurado por el usuario
         ├── estado canónico (máx. 50 calls)
         ├── persistencia/logs acotados
         └── Unix socket IPC
@@ -21,7 +21,7 @@ desktop-remote daemon
              TUI opcional
 ```
 
-El daemon es el proceso persistente. La TUI es un cliente desechable: abrirla o cerrarla no inicia ni detiene Desktop Commander. No hay servidor HTTP, base de datos, token refresh ni routing propio dentro de `desktop-remote`.
+El daemon es el proceso persistente. La TUI es un cliente desechable: abrirla o cerrarla no inicia ni detiene el daemon. No hay servidor HTTP, base de datos, token refresh ni routing propio dentro de `desktop-remote`.
 
 ## Instalación
 
@@ -47,7 +47,7 @@ Para instalar el servicio persistente del usuario:
 desktop-remote install
 ```
 
-`install` fija Desktop Commander oficial en `0.2.47`, construye y prueba el ejecutable de producción e instala un LaunchAgent en macOS o una unidad `systemd --user` en Linux/Debian. No usa `sudo`.
+`install` construye y prueba los artefactos de producción e instala un LaunchAgent en macOS o una unidad `systemd --user` en Linux/Debian. No usa `sudo`.
 
 ## Uso interactivo
 
@@ -66,7 +66,16 @@ desktop-remote restart
 desktop-remote stop
 desktop-remote logs
 desktop-remote logs --follow
+desktop-remote mcp
+desktop-remote tunnel init --tunnel-id tunnel_<32 hex> --profile ./tunnel.json
+desktop-remote tunnel doctor
 ```
+
+`desktop-remote mcp` inicia el servidor MCP propio sobre stdio para clientes MCP. `tunnel init` valida el perfil local, lo guarda sin claves literales y genera únicamente la definición LaunchAgent/unit; no ejecuta `launchctl` ni `systemctl` ni descarga `tunnel-client`. `tunnel doctor` valida el perfil instalado sin llamar a OpenAI ni a ningún servicio remoto.
+
+### Secure MCP Tunnel
+
+Secure MCP Tunnel es una integración opcional: el perfil debe referenciar `env:CONTROL_PLANE_API_KEY`, nunca contener una API key literal. El túnel puede exponerse mediante el servicio de usuario generado para macOS o Linux, pero activarlo queda bajo control explícito del usuario.
 
 `stop` es persistente hasta un `start` explícito. `restart` falla si el servicio fue detenido intencionalmente.
 
@@ -89,7 +98,7 @@ El detalle se adapta a la tool. `read_file` muestra origen/rango y el contenido 
 - `/`: buscar por tool, call ID, argumentos, resultado o error; la búsqueda muestra coincidencias `N / total`.
 - `f`: alternar filtro `all → running → completed → failed`.
 - `?`: abrir ayuda temporal.
-- `Ctrl+C`: cierra únicamente la TUI; el daemon y Desktop Commander siguen ejecutándose.
+- `Ctrl+C`: cierra únicamente la TUI; el daemon sigue ejecutándose.
 
 ## Logging y persistencia
 
@@ -104,7 +113,7 @@ desktop-remote logs --follow
 
 ## Replay
 
-Puedes abrir una sesión JSONL sin iniciar Desktop Commander ni realizar ninguna conexión remota:
+Puedes abrir una sesión JSONL sin iniciar ningún runtime externo ni realizar ninguna conexión remota:
 
 ```bash
 desktop-remote replay ./session.jsonl
@@ -112,12 +121,12 @@ desktop-remote replay ./session.jsonl
 
 Esto es útil para diagnóstico, revisión de incidentes y desarrollo de renderers.
 
-## Compatibilidad con pipes
+## Compatibilidad con pipes históricos
 
-Cuando stdin no es un TTY se conserva el formatter histórico:
+Cuando stdin no es un TTY se conserva el formatter histórico para entradas JSONL/log compatibles. Este modo no inicia ni requiere el ejecutable oficial de ningún producto externo:
 
 ```bash
-desktop-commander remote --persist-session | desktop-remote
+mi-productor-de-eventos | desktop-remote
 ```
 
 Opciones del modo pipe:
@@ -145,21 +154,21 @@ node bin/desktop-remote.js --help
 Las capas principales son:
 
 ```text
-src/runtime/   proceso oficial + parsing a eventos tipados
+src/runtime/   runtime local + parsing a eventos tipados
 src/session/   estado local independiente de la UI
 src/logging/   JSONL y redacción
 src/tui/       OpenTUI/Solid
-src/cli/       selección de modo y compatibilidad pipe
+src/cli/       selección de modo y compatibilidad con pipes históricos
 src/platform/  paths multi-OS y utilidades cross-runtime (Bun/Node)
 bin/cli.ts     composición y dispatch
 bin/desktop-remote.js  wrapper cross-runtime (detecta Bun vs Node)
 ```
 
-El adaptador no debe importar módulos privados como `dist/remote-device`, `RemoteChannel` o clientes Supabase de Desktop Commander.
+El adaptador no importa módulos privados ni clientes de servicios externos.
 
 ## Modo daemon y servicios de usuario
 
-El daemon se ejecuta sin TUI y mantiene `desktop-commander remote --persist-session` vivo con backoff `1s → 2s → 5s → 10s → 30s → 60s`. Tras 10 fallos consecutivos entra en modo degradado y reintenta cada 5 minutos.
+El daemon se ejecuta sin TUI y mantiene el runtime local MCP vivo con backoff `1s → 2s → 5s → 10s → 30s → 60s`. El `tunnel-client` se gestiona por separado mediante el servicio de usuario generado. Tras 10 fallos consecutivos el daemon entra en modo degradado y reintenta cada 5 minutos.
 
 Socket IPC:
 
@@ -168,7 +177,7 @@ Socket IPC:
 
 En macOS se instala `~/Library/LaunchAgents/com.desktop-remote.daemon.plist` con `RunAtLoad`, `KeepAlive` y throttling. En Debian/Linux se instala una unidad en `~/.config/systemd/user/desktop-remote.service` y se gestiona con `systemctl --user`.
 
-No se depende del `PATH` interactivo del shell: la instalación guarda rutas absolutas del runtime y provisiona Desktop Commander `0.2.47` en una ubicación estable del usuario.
+No se depende del `PATH` interactivo del shell: la instalación guarda rutas absolutas en una ubicación estable del usuario.
 
 Para desarrollo existe `desktop-remote daemon`, pero en producción se recomienda usar `desktop-remote install/start/stop/restart`.
 
@@ -177,7 +186,7 @@ Para desarrollo existe `desktop-remote daemon`, pero en producción se recomiend
 - macOS: `launchd` de usuario + Bun para la TUI.
 - Debian/Linux: `systemd --user`; daemon y comandos administrativos compatibles con Node.js o Bun.
 - TUI OpenTUI: requiere Bun actualmente.
-- Pipe mode y `replay` se conservan como herramientas de compatibilidad/diagnóstico.
+- Pipe mode y `replay` se conservan como herramientas de compatibilidad/diagnóstico; el túnel usa `tunnel-client` y es opcional.
 
 ## Gates de estabilidad
 

@@ -14,8 +14,11 @@ export interface DesktopRemotePaths {
   desiredStatePath: string;
   historyPath: string;
   runtimeMetadataPath: string;
+  tunnelProfilePath: string;
   launchAgentPath?: string;
   systemdUserUnitPath?: string;
+  tunnelLaunchAgentPath?: string;
+  tunnelSystemdUserUnitPath?: string;
 }
 
 export function getDesktopRemotePaths(
@@ -33,6 +36,7 @@ function macosPaths(homeDir: string): DesktopRemotePaths {
   const cacheDir = join(homeDir, "Library", "Caches", "desktop-remote");
   return commonPaths(appSupportDir, cacheDir, join(cacheDir, "daemon.sock"), {
     launchAgentPath: join(homeDir, "Library", "LaunchAgents", "com.desktop-remote.daemon.plist"),
+    tunnelLaunchAgentPath: join(homeDir, "Library", "LaunchAgents", "com.desktop-remote.tunnel.plist"),
   });
 }
 
@@ -47,7 +51,10 @@ function xdgPaths(homeDir: string, env: NodeJS.ProcessEnv): DesktopRemotePaths {
     appSupportDir,
     cacheDir,
     join(xdgRuntime ?? cacheDir, "desktop-remote.sock"),
-    { systemdUserUnitPath: join(xdgConfig, "systemd", "user", "desktop-remote.service") },
+    {
+      systemdUserUnitPath: join(xdgConfig, "systemd", "user", "desktop-remote.service"),
+      tunnelSystemdUserUnitPath: join(xdgConfig, "systemd", "user", "desktop-remote-tunnel.service"),
+    },
   );
 }
 
@@ -55,7 +62,7 @@ function commonPaths(
   appSupportDir: string,
   cacheDir: string,
   socketPath: string,
-  platformPaths: Pick<DesktopRemotePaths, "launchAgentPath" | "systemdUserUnitPath">,
+  platformPaths: Pick<DesktopRemotePaths, "launchAgentPath" | "systemdUserUnitPath" | "tunnelLaunchAgentPath" | "tunnelSystemdUserUnitPath">,
 ): DesktopRemotePaths {
   return {
     appSupportDir,
@@ -67,6 +74,7 @@ function commonPaths(
     desiredStatePath: join(appSupportDir, "desired-state.json"),
     historyPath: join(appSupportDir, "history.jsonl"),
     runtimeMetadataPath: join(appSupportDir, "runtime.json"),
+     tunnelProfilePath: join(appSupportDir, "tunnel.yaml"),
     ...platformPaths,
   };
 }

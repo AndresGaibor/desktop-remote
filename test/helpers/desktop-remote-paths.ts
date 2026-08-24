@@ -12,7 +12,10 @@ export function makeTestPaths(dir: string, socketName = "s.sock"): DesktopRemote
     desiredStatePath: join(dir, "desired-state.json"),
     historyPath: join(dir, "history.jsonl"),
     runtimeMetadataPath: join(dir, "runtime.json"),
+    tunnelProfilePath: join(dir, "tunnel.json"),
     launchAgentPath: join(dir, "launch.plist"),
     systemdUserUnitPath: join(dir, "desktop-remote.service"),
+    tunnelLaunchAgentPath: join(dir, "tunnel.plist"),
+    tunnelSystemdUserUnitPath: join(dir, "tunnel.service"),
   };
 }

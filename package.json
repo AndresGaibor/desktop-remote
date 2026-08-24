@@ -25,14 +25,19 @@
     "typescript": "^5"
   },
   "dependencies": {
+    "@modelcontextprotocol/client": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.0.0",
     "@opentui/core": "0.5.3",
     "@opentui/solid": "0.5.3",
-    "@wonderwhy-er/desktop-commander": "0.2.47",
     "boxen": "^8.0.1",
     "chalk": "^6.0.0",
     "cli-highlight": "^2.1.11",
     "commander": "^15.0.0",
+    "docx": "9.7.1",
+    "exceljs": "4.4.0",
+    "pdf-lib": "1.17.1",
     "solid-js": "1.9.12",
-    "tsx": "^4.19.0"
+    "tsx": "^4.19.0",
+    "zod": "^4.4.3"
   }
 }

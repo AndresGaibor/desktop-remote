@@ -22,6 +22,7 @@ export interface IpcDaemonSource {
   status(): DaemonStatus;
   onEvent(listener: (event: RuntimeEvent) => void): () => void;
   stop(): Promise<void>;
+  execute(name: string, input: Record<string, unknown>): Promise<unknown>;
 }
 
 export interface DaemonIpcServerOptions {
@@ -143,6 +144,24 @@ export class DaemonIpcServer {
           requestId: message.requestId,
           status: this.source.status(),
         });
+        return;
+      case "operation.request":
+        try {
+          const result = await this.source.execute(message.name, message.input);
+          this.send(socket, {
+            type: "operation.response",
+            protocolVersion: PROTOCOL_VERSION,
+            requestId: message.requestId,
+            result,
+          });
+        } catch (error) {
+          this.send(socket, {
+            type: "operation.response",
+            protocolVersion: PROTOCOL_VERSION,
+            requestId: message.requestId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
         return;
       case "ping":
         if (this.visualLease?.socket === socket) {

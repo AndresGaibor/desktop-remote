@@ -52,6 +52,7 @@ function makeSource(session: RuntimeSessionStore): IpcDaemonSource {
     status: () => ({ state: "online", childPid: 1, restartCount: 0, consecutiveFailures: 0, startedAt: 1, retainedCalls: session.snapshot().rows.length }),
     onEvent(listener) { listeners.add(listener); return () => listeners.delete(listener); },
     async stop() {},
+    async execute() { return undefined; },
   };
 }
 function forceGc() { try { Bun.gc(true); } catch {} }

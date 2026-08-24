@@ -3,7 +3,7 @@ import type { RuntimeEvent } from "../../src/runtime/events";
 import type { ManagedRuntime } from "../../src/daemon/supervisor";
 import type { HistoryStore } from "../../src/daemon/history-store";
 import type { DaemonIpcServer } from "../../src/daemon/ipc-server";
-import { parseDaemonDevArgs, runDaemon, type DaemonSignalSource } from "../../src/daemon/run-daemon";
+import { LocalRuntime, parseDaemonDevArgs, runDaemon, type DaemonSignalSource } from "../../src/daemon/run-daemon";
 
 class FakeRuntime implements ManagedRuntime {
   running = false;
@@ -39,6 +39,26 @@ class FakeSignals implements DaemonSignalSource {
 }
 
 describe("runDaemon", () => {
+  test("local runtime stays running and emits lifecycle events without spawning", async () => {
+    const runtime = new LocalRuntime({ now: () => 10 });
+    const events: RuntimeEvent[] = [];
+    runtime.onEvent((event) => events.push(event));
+
+    runtime.start();
+    expect(runtime.running).toBe(true);
+    expect(events).toEqual([{
+      type: "device.ready",
+      user: "local",
+      deviceId: "desktop-remote",
+      deviceName: "Desktop Remote Local Runtime",
+      at: 10,
+    }]);
+
+    await runtime.stop();
+    expect(runtime.running).toBe(false);
+    expect(events.at(-1)).toEqual({ type: "runtime.exited", code: 0, signal: null, at: 10 });
+  });
+
   test("starts foreground daemon and shuts down once on SIGTERM", async () => {
     const runtime = new FakeRuntime();
     const signals = new FakeSignals();

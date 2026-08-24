@@ -4,6 +4,7 @@ import { RuntimeSessionStore } from "../session/runtime-store";
 import { HistoryStore } from "./history-store";
 import type { RuntimeSessionSnapshot } from "../session/types";
 import type { SupervisorStatus } from "./supervisor";
+import type { OperationExecutor } from "../mcp/handler";
 
 export interface SupervisorController {
   start(): void;
@@ -27,6 +28,7 @@ export interface DesktopRemoteDaemonOptions {
   store?: RuntimeSessionStore;
   history?: HistoryStore;
   logger?: DaemonLogger;
+  operationExecutor?: OperationExecutor;
 }
 
 export class DesktopRemoteDaemon {
@@ -34,6 +36,7 @@ export class DesktopRemoteDaemon {
   private readonly store: RuntimeSessionStore;
   private readonly history: HistoryStore | undefined;
   private readonly logger: DaemonLogger | undefined;
+  private readonly operationExecutor: OperationExecutor | undefined;
   private readonly listeners = new Set<(event: RuntimeEvent) => void>();
   private unsubscribeSupervisor: (() => void) | undefined;
   private unsubscribeSupervisorStatus: (() => void) | undefined;
@@ -47,6 +50,7 @@ export class DesktopRemoteDaemon {
     this.store = options.store ?? new RuntimeSessionStore();
     this.history = options.history;
     this.logger = options.logger;
+    this.operationExecutor = options.operationExecutor;
   }
 
   start(): void | Promise<void> {
@@ -97,6 +101,10 @@ export class DesktopRemoteDaemon {
 
   status(): DaemonStatus {
     return { ...this.supervisor.status(), retainedCalls: this.store.snapshot().counts.total };
+  }
+  execute(name: string, input: Record<string, unknown>): Promise<unknown> {
+    if (!this.operationExecutor) return Promise.reject(new Error("Daemon operation executor is unavailable"));
+    return this.operationExecutor.execute(name, input);
   }
   onEvent(listener: (event: RuntimeEvent) => void): () => void {
     this.listeners.add(listener);
