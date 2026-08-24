@@ -4,7 +4,7 @@ const TUNNEL_LABEL = "com.desktop-remote.tunnel";
 export function launchAgentTunnelPlist(command: string, profilePath: string): string {
   validateInputs(command, profilePath);
   const args = [command, "run", "--profile-file", profilePath, "--health.listen-addr", `${HEALTH_ADDR}:0`];
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>\n<key>Label</key><string>${xml(TUNNEL_LABEL)}</string>\n<key>ProgramArguments</key><array>${args.map((arg) => `<string>${xml(arg)}</string>`).join("")}</array>\n<key>RunAtLoad</key><true/>\n<key>KeepAlive</key><true/>\n</dict></plist>\n`;
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>\n<key>Label</key><string>${xml(TUNNEL_LABEL)}</string>\n<key>ProgramArguments</key><array>${args.map((arg) => `<string>${xml(arg)}</string>`).join("")}</array>\n<key>RunAtLoad</key><true/>\n<key>KeepAlive</key><true/>\n<key>ProcessType</key><string>Background</string>\n<key>ThrottleInterval</key><integer>10</integer>\n</dict></plist>\n`;
 }
 
 export function systemdTunnelUnit(command: string, profilePath: string): string {

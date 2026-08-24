@@ -1,6 +1,6 @@
 import { platform as nodePlatform } from "node:os";
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { DesktopRemoteIpcClient } from "../client/ipc-client";
 import { attachTui } from "../client/run-attach";
 import { parseDaemonDevArgs, runDaemon } from "../daemon/run-daemon";
@@ -17,6 +17,8 @@ import { SessionStore } from "../session/store";
 import type { TuiSessionSource } from "../client/session-source";
 import { runPipeMode } from "./run-pipe";
 import type { CliDependencies } from "./main";
+import { createMcpServer } from "../mcp/server";
+import { OperationIpcClient } from "../client/operation-ipc-client";
 
 export function createDefaultCliDependencies(): CliDependencies {
   const paths = getDesktopRemotePaths();
@@ -56,13 +58,8 @@ export function createDefaultCliDependencies(): CliDependencies {
       await runDaemon({});
     },
     mcpServe: async () => {
-      const child = Bun.spawn([process.execPath, resolve(import.meta.dir, "../../bin/mcp.ts")], {
-        stdin: "inherit",
-        stdout: "inherit",
-        stderr: "inherit",
-      });
-      const exitCode = await child.exited;
-      if (exitCode !== 0) throw new Error(`MCP server exited with code ${exitCode}`);
+      const server = createMcpServer(new OperationIpcClient(paths.socketPath));
+      await server.connect(new StdioServerTransport());
     },
     tunnelInit: async (args) => {
       const tunnelId = optionValue(args, "--tunnel-id");
