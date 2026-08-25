@@ -7,10 +7,31 @@ describe("MCP tool definitions", () => {
 
     expect(definitions).toHaveLength(24);
     expect(definitions.find((tool) => tool.name === "read_file")).toMatchObject({
-      annotations: { readOnlyHint: true, destructiveHint: false },
+      title: "Read file",
+      description: expect.stringContaining("Use this when"),
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
     });
     expect(definitions.find((tool) => tool.name === "write_file")).toMatchObject({
-      annotations: { readOnlyHint: false, destructiveHint: true },
+      title: "Write file",
+      description: expect.stringContaining("Use this when"),
+      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
     });
+    expect(definitions.find((tool) => tool.name === "start_process")).toMatchObject({
+      title: "Start process",
+      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+    });
+    expect(definitions.find((tool) => tool.name === "get_config")?.outputSchema).toBeDefined();
+    expect(definitions.find((tool) => tool.name === "stop_search")?.outputSchema).toBeUndefined();
+  });
+
+  test("structured-returning tools declare output schemas", () => {
+    const definitions = createToolDefinitions();
+    for (const tool of definitions) {
+      if (tool.name === "stop_search") {
+        expect(tool.outputSchema).toBeUndefined();
+      } else {
+        expect(tool.outputSchema, `${tool.name} output schema`).toBeDefined();
+      }
+    }
   });
 });

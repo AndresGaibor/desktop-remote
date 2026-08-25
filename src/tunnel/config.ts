@@ -1,9 +1,11 @@
+import { assertNoCredentialArgv } from "../security/argv-secrets";
+
 export const DEFAULT_API_KEY_REF = "env:CONTROL_PLANE_API_KEY";
 
 export interface TunnelProfile {
   tunnelId: string;
   mcpCommand: string;
-  apiKeyRef: typeof DEFAULT_API_KEY_REF;
+  apiKeyRef: string;
 }
 
 type ProfileInput = Partial<{
@@ -34,10 +36,12 @@ export function createTunnelProfile(input: ProfileInput): TunnelProfile {
     throw new Error("tunnel_id must match tunnel_ followed by 32 lowercase hexadecimal characters");
   }
   if (typeof mcpCommand !== "string" || !mcpCommand.trim()) throw new Error("mcp_command is required");
-  rejectSecretText(mcpCommand);
-  if (apiKeyRef !== DEFAULT_API_KEY_REF) throw new Error("api_key_ref must reference CONTROL_PLANE_API_KEY");
+  assertNoCredentialArgv(mcpCommand);
+  if (typeof apiKeyRef !== "string" || !isSecretReference(apiKeyRef)) {
+    throw new Error("api_key_ref must use an env:VARIABLE or file:/path secret reference");
+  }
 
-  return { tunnelId, mcpCommand: mcpCommand.trim(), apiKeyRef: DEFAULT_API_KEY_REF };
+  return { tunnelId, mcpCommand: mcpCommand.trim(), apiKeyRef };
 }
 
 export function parseTunnelProfile(source: string | ProfileInput): TunnelProfile {
@@ -133,8 +137,14 @@ export function serializeTunnelProfile(profile: TunnelProfile, format: "yaml" | 
 
 function rejectLiteralKey(input: ProfileInput): void {
   const apiKey = input.api_key ?? input.apiKey ?? input.control_plane?.api_key;
-  if (apiKey !== undefined && apiKey !== DEFAULT_API_KEY_REF) throw new Error("literal API key/secret is forbidden");
+  if (apiKey !== undefined && (typeof apiKey !== "string" || !isSecretReference(apiKey))) {
+    throw new Error("literal API key/secret is forbidden");
+  }
   for (const value of Object.values(input)) if (typeof value === "string") rejectSecretText(value);
+}
+
+function isSecretReference(value: string): boolean {
+  return /^env:[A-Za-z_][A-Za-z0-9_]*$/.test(value) || /^file:\/.+/.test(value);
 }
 
 function assignNestedValue(target: Record<string, unknown>, entry: string): void {

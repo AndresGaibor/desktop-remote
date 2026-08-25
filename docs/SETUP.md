@@ -36,7 +36,7 @@ La key del plano de control se guarda en un archivo local fuera del repo:
 cat ~/.config/desktop-remote/control-plane-api-key
 ```
 
-Copia el valor — lo necesitarás en el Paso 3.
+No necesitas copiar el valor a ChatGPT. El perfil de `tunnel-client` debe referenciar este archivo mediante `file:/ruta/...`.
 
 ### Opción B: Crear una nueva key
 
@@ -65,19 +65,28 @@ chmod 600 ~/.config/desktop-remote/control-plane-api-key
 
 ---
 
-## Paso 3 — Configurar ChatGPT como Cliente MCP
+## Paso 3 — Conectar el túnel desde ChatGPT
 
-1. Abre https://chatgpt.com
-2. Ve a Settings → Beta → Developer MCP Settings (o Settings → Connectors según la versión)
-3. Añade un conector nuevo:
-   - **Nombre:** `Remote Desktop Mac` (o el que prefieras)
-   - **Command:** `/Users/andresgaibor/.local/bin/desktop-remote-mcp` (ajusta la ruta si tu usuario es diferente)
-   - **Env:** `PATH=/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin`
-4. Guarda
+1. Abre https://chatgpt.com/plugins.
+2. Asegúrate de tener **Developer mode** habilitado en Settings → Security and login.
+3. Pulsa `+` para crear una app de developer mode.
+4. Escribe el nombre y la descripción visibles para el usuario.
+5. En **Connection**, selecciona **Tunnel**.
+6. Selecciona el túnel disponible o pega su `tunnel_id`.
+7. Crea la conexión y revisa las 24 tools descubiertas.
+
+ChatGPT no ejecuta directamente `/Users/.../desktop-remote-mcp`: el comando local pertenece al perfil de `tunnel-client`. ChatGPT se conecta al endpoint de túnel alojado por OpenAI y `tunnel-client` reenvía las llamadas al MCP local por `stdio`.
 
 ### Verificar desde ChatGPT
 
-En una conversación nueva con el conector habilitado, prueba:
+Después de cualquier cambio de nombres, descriptions, schemas o annotations:
+
+1. Abre la conexión en https://chatgpt.com/plugins.
+2. Pulsa **Refresh**.
+3. Confirma que la metadata descubierta cambió.
+4. Abre una conversación **nueva**, añade `Remote Desktop Mac` desde Tools y prueba una operación read-only.
+
+Por ejemplo:
 
 ```
 Lista los procesos en ejecución
@@ -119,22 +128,44 @@ bun run bin/cli.ts install
 Esto:
 - Copia `dist/desktop-remote` a `~/Library/Application Support/desktop-remote/bin/`
 - Crea el LaunchAgent del daemon
-- Habilita ambos servicios con `RunAtLoad` y `KeepAlive`
+- Instala y habilita el servicio `desktop-remote.daemon`. El servicio de `tunnel-client` se genera por separado en el paso 4.5.
 
 ### 4.5 Configurar el túnel
 
+Genera primero el perfil con el `tunnel-client` oficial y su sample de MCP local por `stdio`:
+
 ```bash
-tunnel-client tunnel init \
-  --tunnel-id tunnel_xxxxxxxx \
-  --profile-file ~/Library/Application\ Support/desktop-remote/tunnel.yaml
+TUNNEL_ID="tunnel_xxxxxxxx"
+PROFILE_DIR="$HOME/Library/Application Support/desktop-remote"
+MCP_COMMAND="$HOME/.local/bin/desktop-remote-mcp"
+KEY_FILE="$HOME/.config/desktop-remote/control-plane-api-key"
+
+tunnel-client init \
+  --sample sample_mcp_stdio_local \
+  --profile tunnel \
+  --profile-dir "$PROFILE_DIR" \
+  --tunnel-id "$TUNNEL_ID" \
+  --mcp-command "$MCP_COMMAND" \
+  --control-plane-api-key-ref "file:$KEY_FILE" \
+  --health-listen-addr 127.0.0.1:0 \
+  --force
 ```
 
-Luego edita `tunnel.yaml` manualmente para apuntar a la API key:
+Después usa Desktop Remote para validar ese perfil y generar el LaunchAgent del túnel:
 
-```yaml
-control_plane:
-  api_key: file:/Users/TU_USUARIO/.config/desktop-remote/control-plane-api-key
+```bash
+desktop-remote tunnel init \
+  --tunnel-id "$TUNNEL_ID" \
+  --profile "$PROFILE_DIR/tunnel.yaml"
+
+# Validación local del perfil guardado
+desktop-remote tunnel doctor
+
+# Validación autoritativa del tunnel-client
+tunnel-client doctor --profile-file "$PROFILE_DIR/tunnel.yaml" --explain
 ```
+
+Las referencias `env:VARIABLE` y `file:/ruta` son válidas. No guardes una API key literal dentro de `tunnel.yaml`.
 
 ### 4.6 Iniciar los servicios manualmente (sin reiniciar)
 
@@ -143,8 +174,10 @@ control_plane:
 launchctl kickstart -k gui/$(id -u)/com.desktop-remote.daemon
 launchctl kickstart -k gui/$(id -u)/com.desktop-remote.tunnel
 
-# Espera ~5 segundos, luego verifica
-curl -fsS http://127.0.0.1:61630/readyz
+# Espera ~5 segundos, luego verifica el puerto efímero elegido
+HEALTH_URL_FILE="$HOME/Library/Application Support/desktop-remote/tunnel-health.url"
+BASE_URL="$(cat "$HEALTH_URL_FILE")"
+curl -fsS "$BASE_URL/readyz"
 
 # Opción B: verificar con el doctor
 tunnel-client doctor --profile-file ~/Library/Application\ Support/desktop-remote/tunnel.yaml --explain
@@ -162,8 +195,11 @@ launchctl print gui/$(id -u)/com.desktop-remote.tunnel | grep 'state ='
 # 2. Procesos
 ps aux | grep '[d]esktop-remote\|[t]unnel-client'
 
-# 3. Salud del daemon
-curl -fsS http://127.0.0.1:61630/readyz
+# 3. Salud/readiness del Secure MCP Tunnel
+HEALTH_URL_FILE="$HOME/Library/Application Support/desktop-remote/tunnel-health.url"
+BASE_URL="$(cat "$HEALTH_URL_FILE")"
+curl -fsS "$BASE_URL/healthz"
+curl -fsS "$BASE_URL/readyz"
 
 # 4. Doctor del túnel
 tunnel-client doctor \
@@ -229,11 +265,14 @@ Mata el proceso con PID 12345
 
 ## Solución de Problemas
 
-### `FORBIDDEN: This conversation does not support developer MCPs`
+### `FORBIDDEN: This conversation does not support developer MCPs` o el MCP desaparece de un chat
 
-- Usa una conversación **nueva** en ChatGPT.
-- Verifica que Developer MCPs / Connectors esté habilitado en Settings.
-- El conector `Remote Desktop Mac` debe aparecer como habilitado.
+- Verifica que Developer mode esté habilitado en Settings → Security and login.
+- Abre la conexión en https://chatgpt.com/plugins y pulsa **Refresh**.
+- Confirma que `Remote Desktop Mac` siga habilitado.
+- Usa una conversación **nueva** y vuelve a añadir la conexión desde Tools.
+- Si `tunnel-client` está `ready`, no reinicies servicios solo porque un chat antiguo haya perdido el MCP.
+- Sigue `docs/CHATGPT_MCP_RUNBOOK.md` para distinguir un fallo de ChatGPT de uno del Mac.
 
 ### El túnel no conecta
 

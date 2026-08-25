@@ -77,15 +77,15 @@ describe("DesktopOperationExecutor", () => {
 
     const executor = new DesktopOperationExecutor();
     const started = await executor.execute("start_search", {
-      root: directory,
+      path: directory,
       pattern: "needle",
-      mode: "content",
+      searchType: "content",
     }) as { id: string; status: string };
     const searchId = started.id;
     expect(started.id).toEqual(expect.any(String));
     expect(started.status).toBe("running");
     const page = await executor.execute("get_more_search_results", {
-      id: searchId,
+      sessionId: searchId,
       offset: 0,
       length: 10,
     });
@@ -93,14 +93,14 @@ describe("DesktopOperationExecutor", () => {
     await expect(executor.execute("list_searches", {})).resolves.toEqual([
       { id: searchId, status: "completed" },
     ]);
-    await expect(executor.execute("stop_search", { id: searchId })).resolves.toBeUndefined();
+    await expect(executor.execute("stop_search", { sessionId: searchId })).resolves.toBeUndefined();
   });
 
   test("validates search operation inputs", async () => {
     const executor = new DesktopOperationExecutor();
-    await expect(executor.execute("start_search", { root: "/tmp", pattern: "x", mode: "invalid" }))
-      .rejects.toThrow(/mode/i);
-    await expect(executor.execute("get_more_search_results", { id: "x", offset: -1, length: 1 }))
+    await expect(executor.execute("start_search", { path: "/tmp", pattern: "x", searchType: "invalid" }))
+      .rejects.toThrow(/searchType/i);
+    await expect(executor.execute("get_more_search_results", { sessionId: "x", offset: -1, length: 1 }))
       .rejects.toThrow(/offset/i);
   });
 });

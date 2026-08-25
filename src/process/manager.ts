@@ -1,3 +1,5 @@
+import { redactArgvSecrets } from "../security/argv-secrets";
+
 export interface StartedProcess {
   id: string;
   pid: number;
@@ -194,5 +196,5 @@ function sliceOutput(output: string, offset?: number, length?: number): string {
 function parseProcessLine(line: string): SystemProcess | undefined {
   const match = line.trim().match(/^(\d+)\s+(\d+)\s+(\S+)\s*(.*)$/);
   if (!match) return undefined;
-  return { pid: Number(match[1]), ppid: Number(match[2]), stat: match[3]!, command: match[4] ?? "" };
+  return { pid: Number(match[1]), ppid: Number(match[2]), stat: match[3]!, command: redactArgvSecrets(match[4] ?? "") };
 }

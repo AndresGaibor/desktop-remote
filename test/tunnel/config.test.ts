@@ -77,6 +77,23 @@ mcp:
     });
   });
 
+  test("accepts and preserves tunnel-client file API key references", () => {
+    const profile = parseTunnelProfile(`config_version: 1
+control_plane:
+  tunnel_id: tunnel_0123456789abcdef0123456789abcdef
+  api_key: file:/Users/alice/.config/desktop-remote/control-plane-api-key
+mcp:
+  commands:
+    - channel: main
+      command: desktop-remote-mcp
+`);
+
+    expect(profile.apiKeyRef).toBe("file:/Users/alice/.config/desktop-remote/control-plane-api-key");
+    expect(serializeTunnelProfile(profile, "yaml")).toContain(
+      "api_key: file:/Users/alice/.config/desktop-remote/control-plane-api-key",
+    );
+  });
+
   test("rejects invalid tunnel IDs and literal API keys", () => {
     expect(() => createTunnelProfile({ tunnel_id: "bad id", mcp_command: "openai mcp" })).toThrow(
       "tunnel_id",
@@ -84,5 +101,12 @@ mcp:
     expect(() => parseTunnelProfile({ tunnel_id: "tunnel_0123456789abcdef0123456789abcdef", api_key: "sk-live-secret" })).toThrow(
       /literal|secret|API key/i,
     );
+  });
+
+  test("rejects MCP commands that pass secrets through argv flags", () => {
+    expect(() => createTunnelProfile({
+      tunnel_id: "tunnel_0123456789abcdef0123456789abcdef",
+      mcp_command: "example-mcp --api-key dummy-sensitive-value-12345",
+    })).toThrow(/argv|secret|api key/i);
   });
 });

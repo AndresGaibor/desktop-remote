@@ -12,6 +12,7 @@ describe("operation registry", () => {
       "move_file",
       "get_file_info",
       "edit_block",
+      "write_pdf",
       "start_search",
       "get_more_search_results",
       "stop_search",

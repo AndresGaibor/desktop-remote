@@ -23,4 +23,11 @@ describe("MCP operation handler", () => {
       isError: true,
     });
   });
+  test("omits structured content when the executor has no structured result", async () => {
+    const handler = createOperationHandler({ execute: async () => undefined });
+
+    await expect(handler("stop_search", { sessionId: "search-1" })).resolves.toEqual({
+      content: [{ type: "text", text: "" }],
+    });
+  });
 });

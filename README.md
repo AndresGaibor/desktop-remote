@@ -73,9 +73,13 @@ desktop-remote tunnel doctor
 
 `desktop-remote mcp` inicia el servidor MCP propio sobre stdio para clientes MCP. `tunnel init` valida el perfil local, lo guarda sin claves literales y genera únicamente la definición LaunchAgent/unit; no ejecuta `launchctl` ni `systemctl` ni descarga `tunnel-client`. `tunnel doctor` valida el perfil instalado sin llamar a OpenAI ni a ningún servicio remoto.
 
+Consulta `docs/openai/README.md` para las referencias oficiales de OpenAI usadas por esta implementación y `docs/CHATGPT_MCP_RUNBOOK.md` para diagnosticar una conexión que desaparece de una conversación.
+
 ### Secure MCP Tunnel
 
-Secure MCP Tunnel es una integración opcional: el perfil debe referenciar `env:CONTROL_PLANE_API_KEY`, nunca contener una API key literal. El túnel puede exponerse mediante el servicio de usuario generado para macOS o Linux, pero activarlo queda bajo control explícito del usuario.
+Secure MCP Tunnel es una integración opcional: el perfil debe usar una referencia segura `env:VARIABLE` o `file:/ruta`, nunca contener una API key literal. El túnel puede exponerse mediante el servicio de usuario generado para macOS o Linux, pero activarlo queda bajo control explícito del usuario.
+
+Por seguridad, los comandos MCP no pueden pasar credenciales mediante flags de argv como `--api-key` o `--token`; usa variables de entorno o referencias a archivos. `list_processes` también redacta secretos conocidos y valores asociados a flags/variables de credenciales antes de devolverlos al cliente MCP.
 
 `stop` es persistente hasta un `start` explícito. `restart` falla si el servicio fue detenido intencionalmente.
 
