@@ -7,35 +7,77 @@ import {
   type ServerMessage,
 } from "../ipc/protocol";
 
+export interface OperationExecutionOptions {
+  timeoutMs?: number;
+  signal?: AbortSignal;
+  traceId?: string;
+}
+
+const DEFAULT_TIMEOUT_MS = 20_000;
+
 export class OperationIpcClient {
   private requestCounter = 0;
 
   constructor(private readonly socketPath: string) {}
 
-  async execute(name: string, input: Record<string, unknown>): Promise<unknown> {
+  async execute(
+    name: string,
+    input: Record<string, unknown>,
+    options: OperationExecutionOptions = {},
+  ): Promise<unknown> {
     const requestId = `operation-${++this.requestCounter}`;
+    const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     const socket = createConnection(this.socketPath);
     const decoder = new JsonLineDecoder();
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let onAbort: (() => void) | undefined;
+
+    const cleanup = () => {
+      if (timer !== undefined) {
+        clearTimeout(timer);
+        timer = undefined;
+      }
+      if (onAbort !== undefined) {
+        options.signal?.removeEventListener("abort", onAbort);
+        onAbort = undefined;
+      }
+    };
+
     return new Promise<unknown>((resolve, reject) => {
-      let settled = false;
       const finish = (callback: () => void) => {
         if (settled) return;
         settled = true;
+        cleanup();
         socket.destroy();
         callback();
       };
+      const fail = (error: unknown) => finish(() => reject(error));
+      const succeed = (value: unknown) => finish(() => resolve(value));
+
+      timer = setTimeout(() => {
+        fail(new Error(`Desktop Remote operation timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+
+      if (options.signal) {
+        if (options.signal.aborted) {
+          fail(new Error("Desktop Remote operation was aborted"));
+          return;
+        }
+        onAbort = () => fail(new Error("Desktop Remote operation was aborted"));
+        options.signal.addEventListener("abort", onAbort, { once: true });
+      }
+
       socket.on("data", (chunk) => {
         try {
           for (const value of decoder.push(chunk)) {
-            const message = parseServerMessage(value);
+            const message = parseServerMessage(value) as ServerMessage;
             if (message.type !== "operation.response" || message.requestId !== requestId) continue;
-            finish(() => {
-              if (message.error !== undefined) reject(new Error(message.error));
-              else resolve(message.result);
-            });
+            if (message.error !== undefined) fail(new Error(message.error));
+            else succeed(message.result);
           }
         } catch (error) {
-          finish(() => reject(error));
+          fail(error);
         }
       });
       socket.once("connect", () => {
@@ -46,14 +88,15 @@ export class OperationIpcClient {
             requestId,
             name,
             input,
+            ...(options.traceId !== undefined ? { traceId: options.traceId } : {}),
           }));
         } catch (error) {
-          finish(() => reject(error));
+          fail(error);
         }
       });
-      socket.once("error", (error) => finish(() => reject(error)));
+      socket.once("error", (error) => fail(error));
       socket.once("close", () => {
-        if (!settled) finish(() => reject(new Error("Desktop Remote operation IPC connection closed")));
+        if (!settled) fail(new Error("Desktop Remote operation IPC connection closed"));
       });
     });
   }

@@ -22,7 +22,11 @@ export class DesktopOperationExecutor {
     this.configStore = configStore ?? new ConfigStore(join(tmpdir(), `desktop-remote-${process.pid}.json`));
   }
 
-  async execute(name: string, input: Record<string, unknown>): Promise<unknown> {
+  async execute(
+    name: string,
+    input: Record<string, unknown>,
+    options?: { traceId?: string },
+  ): Promise<unknown> {
     if (name === "get_config") return this.configStore.getConfig();
     if (name === "set_config_value") return this.configStore.setConfigValue(requireString(input.key, "key"), input.value);
     if (name === "get_usage_stats") return this.configStore.getUsageStats();
@@ -30,11 +34,34 @@ export class DesktopOperationExecutor {
     const startedAt = new Date();
     try {
       const result = await this.executeTool(name, input);
-      await this.configStore.recordToolCall({ toolName: name, arguments: input, result, startedAt: startedAt.toISOString(), completedAt: new Date().toISOString(), durationMs: Date.now() - startedAt.getTime() });
+      await this.recordBestEffort(name, input, { result }, startedAt, options);
       return result;
     } catch (error) {
-      await this.configStore.recordToolCall({ toolName: name, arguments: input, error: error instanceof Error ? error.message : String(error), startedAt: startedAt.toISOString(), completedAt: new Date().toISOString(), durationMs: Date.now() - startedAt.getTime() });
+      await this.recordBestEffort(name, input, { error: error instanceof Error ? error.message : String(error) }, startedAt, options);
       throw error;
+    }
+  }
+
+  private async recordBestEffort(
+    name: string,
+    input: Record<string, unknown>,
+    partial: { result?: unknown; error?: string },
+    startedAt: Date,
+    options?: { traceId?: string },
+  ): Promise<void> {
+    try {
+      await this.configStore.recordToolCall({
+        toolName: name,
+        arguments: input,
+        ...partial,
+        startedAt: startedAt.toISOString(),
+        completedAt: new Date().toISOString(),
+        durationMs: Date.now() - startedAt.getTime(),
+        ...(options?.traceId !== undefined ? { traceId: options.traceId } : {}),
+      });
+    } catch {
+      // La telemetría es best-effort: un fallo de persistencia nunca debe
+      // cambiar la semántica operacional (ni enmascarar el error original).
     }
   }
 

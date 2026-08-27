@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readTextFile, writeTextFile } from "../../src/filesystem/files";
+import { type TextPage } from "../../src/filesystem/files";
 
 const directories: string[] = [];
 
@@ -22,6 +23,7 @@ describe("filesystem operations", () => {
       totalLines: 4,
       offset: 1,
       length: 2,
+      truncated: false,
     });
     expect(await readFile(path, "utf8")).toBe("one\ntwo\nthree\nfour");
   });
@@ -32,6 +34,51 @@ describe("filesystem operations", () => {
     await expect(readTextFile(join(directory, "missing.txt"), { offset: -1, length: 1 }))
       .rejects.toThrow(/offset/i);
     await expect(writeTextFile("", "text")).rejects.toThrow(/path/i);
+  });
+
+  test("marks truncated when total lines exceed requested page", async () => {
+    const directory = await temporaryDirectory();
+    const path = join(directory, "notes.txt");
+
+    await writeTextFile(path, "one\ntwo\nthree\nfour\nfive");
+
+    const result = await readTextFile(path, { offset: 0, length: 2 });
+    expect(result.truncated).toBe(true);
+    expect(result.totalLines).toBe(5);
+    expect(result.content).toBe("one\ntwo");
+  });
+
+  test("does not mark truncated when all lines are returned", async () => {
+    const directory = await temporaryDirectory();
+    const path = join(directory, "notes.txt");
+
+    await writeTextFile(path, "one\ntwo\nthree");
+
+    const result = await readTextFile(path, { offset: 0, length: 10 });
+    expect(result.truncated).toBe(false);
+    expect(result.totalLines).toBe(3);
+    expect(result.content).toBe("one\ntwo\nthree");
+  });
+
+  test("file on disk is not modified by read operation", async () => {
+    const directory = await temporaryDirectory();
+    const path = join(directory, "notes.txt");
+
+    await writeTextFile(path, "line1\nline2\nline3\nline4\nline5");
+    await readTextFile(path, { offset: 1, length: 2 });
+
+    expect(await readFile(path, "utf8")).toBe("line1\nline2\nline3\nline4\nline5");
+  });
+
+  test("respects lineLimit option when provided", async () => {
+    const directory = await temporaryDirectory();
+    const path = join(directory, "notes.txt");
+
+    await writeTextFile(path, "a\n".repeat(200));
+
+    const result = await readTextFile(path, { offset: 0, length: 50, lineLimit: 100 });
+    expect(result.content.split("\n").length - 1).toBeLessThanOrEqual(100);
+    expect(result.truncated).toBe(true);
   });
 });
 

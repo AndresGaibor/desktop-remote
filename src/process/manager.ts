@@ -31,7 +31,8 @@ export interface SystemProcess {
 interface ManagedProcess {
   id: string;
   child: Bun.Subprocess<"pipe", "pipe", "pipe">;
-  output: string;
+  outputChunks: string[];
+  outputBytes: number;
   exitCode?: number;
   outputReady: Promise<void>;
 }
@@ -51,13 +52,36 @@ export interface InteractProcessOptions extends ReadProcessOptions {
   wait_for_prompt?: boolean;
 }
 
+export interface ProcessManagerOptions {
+  maxConcurrentProcesses?: number;
+  maxOutputBytes?: number;
+}
+
 export class ProcessManager {
   private readonly processes = new Map<number, ManagedProcess>();
   private readonly ids = new Map<string, number>();
+  private readonly maxConcurrentProcesses: number;
+  private readonly maxOutputBytes: number;
+
+  constructor(options: ProcessManagerOptions = {}) {
+    this.maxConcurrentProcesses = options.maxConcurrentProcesses ?? 16;
+    this.maxOutputBytes = options.maxOutputBytes ?? 64 * 1024;
+    if (!Number.isSafeInteger(this.maxConcurrentProcesses) || this.maxConcurrentProcesses <= 0) {
+      throw new Error("maxConcurrentProcesses must be a positive integer");
+    }
+    if (!Number.isSafeInteger(this.maxOutputBytes) || this.maxOutputBytes <= 0) {
+      throw new Error("maxOutputBytes must be a positive integer");
+    }
+  }
 
   async start(command: string | string[], options: ProcessOptions = {}): Promise<StartedProcess> {
     if (typeof command === "string" && !command.trim()) throw new Error("command is required");
     if (Array.isArray(command) && (command.length === 0 || !command[0])) throw new Error("command is required");
+
+    const runningCount = [...this.processes.values()].filter((p) => p.exitCode === undefined).length;
+    if (runningCount >= this.maxConcurrentProcesses) {
+      throw new Error(`Maximum concurrent processes (${this.maxConcurrentProcesses}) exceeded`);
+    }
 
     const shell = options.shell ?? (process.platform === "win32" ? "cmd.exe" : "zsh");
     const argv = typeof command === "string" ? [shell, process.platform === "win32" ? "/c" : "-lc", command] : command;
@@ -66,7 +90,8 @@ export class ProcessManager {
     const managed: ManagedProcess = {
       id,
       child,
-      output: "",
+      outputChunks: [],
+      outputBytes: 0,
       outputReady: Promise.resolve(),
     };
     managed.outputReady = this.collectOutput(managed);
@@ -86,14 +111,14 @@ export class ProcessManager {
 
   async readOutput(idOrPid: string | number, options: ReadProcessOptions = {}): Promise<ProcessOutput> {
     const process = this.getManaged(idOrPid);
-    if (options.timeout_ms === undefined && process.exitCode === undefined) {
-      await process.child.exited;
-      await process.outputReady;
-    } else if (options.timeout_ms !== undefined) {
-      await Promise.race([process.child.exited, delay(options.timeout_ms)]);
-      if (process.exitCode !== undefined) await process.outputReady;
+    const waitMs = options.timeout_ms ?? 1000;
+    if (process.exitCode === undefined) {
+      await Promise.race([process.child.exited, delay(waitMs)]);
     }
-    const output = sliceOutput(process.output, options.offset, options.length);
+    if (process.exitCode !== undefined) {
+      await Promise.race([process.outputReady, delay(500)]);
+    }
+    const output = sliceOutput(this.getOutput(process), options.offset, options.length);
     const exitCode = process.exitCode;
     return {
       id: process.id,
@@ -125,7 +150,7 @@ export class ProcessManager {
       id: process.id,
       pid: process.child.pid,
       status: process.exitCode === undefined ? "running" : process.exitCode === 0 ? "completed" : "failed",
-      output: process.output,
+      output: this.getOutput(process),
       ...(process.exitCode === undefined ? {} : { exitCode: process.exitCode }),
     }));
   }
@@ -141,6 +166,10 @@ export class ProcessManager {
   async kill(pid: number): Promise<{ pid: number; killed: true }> {
     if (!Number.isSafeInteger(pid) || pid <= 0) throw new Error("pid must be a positive integer");
     this.signal(pid, "SIGTERM");
+    const process = this.processes.get(pid);
+    if (process && process.exitCode === undefined) {
+      await Promise.race([process.outputReady, delay(5000)]);
+    }
     return { pid, killed: true };
   }
 
@@ -152,15 +181,30 @@ export class ProcessManager {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          process.output += decoder.decode(value, { stream: true });
+          this.appendOutput(process, decoder.decode(value, { stream: true }));
         }
-        process.output += decoder.decode();
+        this.appendOutput(process, decoder.decode());
       } finally {
         reader.releaseLock();
       }
     };
     await Promise.all([read(process.child.stdout), read(process.child.stderr)]);
     process.exitCode = await process.child.exited;
+  }
+
+  private appendOutput(process: ManagedProcess, chunk: string): void {
+    const bytes = new TextEncoder().encode(chunk).length;
+    if (bytes === 0) return;
+    process.outputBytes += bytes;
+    process.outputChunks.push(chunk);
+    while (process.outputBytes > this.maxOutputBytes && process.outputChunks.length > 1) {
+      const removed = process.outputChunks.shift()!;
+      process.outputBytes -= new TextEncoder().encode(removed).length;
+    }
+  }
+
+  private getOutput(process: ManagedProcess): string {
+    return process.outputChunks.join("");
   }
 
   private getManaged(idOrPid: string | number): ManagedProcess {

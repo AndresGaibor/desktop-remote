@@ -102,9 +102,9 @@ export class DesktopRemoteDaemon {
   status(): DaemonStatus {
     return { ...this.supervisor.status(), retainedCalls: this.store.snapshot().counts.total };
   }
-  execute(name: string, input: Record<string, unknown>): Promise<unknown> {
+  execute(name: string, input: Record<string, unknown>, options?: { traceId?: string }): Promise<unknown> {
     if (!this.operationExecutor) return Promise.reject(new Error("Daemon operation executor is unavailable"));
-    return this.operationExecutor.execute(name, input);
+    return this.operationExecutor.execute(name, input, options);
   }
   onEvent(listener: (event: RuntimeEvent) => void): () => void {
     this.listeners.add(listener);

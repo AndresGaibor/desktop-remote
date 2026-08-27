@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DesktopOperationExecutor } from "../../src/core/executor";
+import { ConfigStore } from "../../src/config/store";
 
 const directories: string[] = [];
 
@@ -18,7 +19,7 @@ describe("DesktopOperationExecutor", () => {
     await writeFile(path, "first\nsecond", "utf8");
 
     await expect(new DesktopOperationExecutor().execute("read_file", { path, offset: 1, length: 1 }))
-      .resolves.toEqual({ content: "second", totalLines: 2, offset: 1, length: 1 });
+      .resolves.toEqual({ content: "second", totalLines: 2, offset: 1, length: 1, truncated: false });
   });
 
   test("rejects operations that have no implementation", async () => {
@@ -103,4 +104,29 @@ describe("DesktopOperationExecutor", () => {
     await expect(executor.execute("get_more_search_results", { sessionId: "x", offset: -1, length: 1 }))
       .rejects.toThrow(/offset/i);
   });
+
+  test("telemetry persistence failure never turns an operational success into failure", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "desktop-remote-telemetry-"));
+    directories.push(directory);
+    const path = join(directory, "note.txt");
+    const executor = new DesktopOperationExecutor(undefined, new FailingRecordConfigStore(join(directory, "config.json")));
+
+    await expect(executor.execute("write_file", { path, content: "created" }))
+      .resolves.toEqual({ path, written: true });
+    await expect(readFile(path, "utf8")).resolves.toBe("created");
+  });
+
+  test("telemetry persistence failure never masks the original operational error", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "desktop-remote-telemetry-"));
+    directories.push(directory);
+    const executor = new DesktopOperationExecutor(undefined, new FailingRecordConfigStore(join(directory, "config.json")));
+
+    await expect(executor.execute("unknown", {})).rejects.toThrow("Operation is not implemented: unknown");
+  });
 });
+
+class FailingRecordConfigStore extends ConfigStore {
+  override async recordToolCall(): Promise<void> {
+    throw new Error("telemetry disk unavailable");
+  }
+}
