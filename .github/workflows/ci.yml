@@ -36,5 +36,7 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Test
         run: bun test
+      - name: Production artifact regression gate
+        run: bun run test:build:prod
       - name: Typecheck
         run: bun run typecheck
