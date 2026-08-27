@@ -1,5 +1,11 @@
+export interface OperationExecutionOptions {
+  traceId?: string;
+  deadlineAt?: number;
+  signal?: AbortSignal;
+}
+
 export interface OperationExecutor {
-  execute(name: string, input: Record<string, unknown>, options?: { traceId?: string }): Promise<unknown>;
+  execute(name: string, input: Record<string, unknown>, options?: OperationExecutionOptions): Promise<unknown>;
 }
 
 export interface McpRequestLogger {

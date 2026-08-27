@@ -19,7 +19,7 @@ export type ClientMessage =
   | (Versioned & { type: "snapshot.request" })
   | (Versioned & { type: "subscribe" })
   | (Versioned & { type: "status.request"; requestId: string })
-  | (Versioned & { type: "operation.request"; requestId: string; name: string; input: Record<string, unknown>; traceId?: string })
+  | (Versioned & { type: "operation.request"; requestId: string; name: string; input: Record<string, unknown>; traceId?: string; deadlineAt?: number })
   | (Versioned & { type: "ping"; at: number })
   | (Versioned & { type: "detach" })
   | (Versioned & { type: "shutdown" });
@@ -65,6 +65,7 @@ export function parseClientMessage(value: unknown): ClientMessage {
       requireString(message.requestId, "operation.request requestId");
       requireString(message.name, "operation.request name");
       requireRecord(message.input, "operation.request input");
+      if (message.deadlineAt !== undefined) requireNumber(message.deadlineAt, "operation.request deadlineAt");
       return message as ClientMessage;
     case "ping":
       requireNumber(message.at, "ping at");

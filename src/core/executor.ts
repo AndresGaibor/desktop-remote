@@ -11,6 +11,7 @@ import { ConfigStore } from "../config/store";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { summarizeToolCall } from "../telemetry/tool-call-summary";
+import type { OperationExecutionOptions } from "../mcp/handler";
 
 export class DesktopOperationExecutor {
   private readonly processes = new ProcessManager();
@@ -26,7 +27,7 @@ export class DesktopOperationExecutor {
   async execute(
     name: string,
     input: Record<string, unknown>,
-    options?: { traceId?: string },
+    options?: OperationExecutionOptions,
   ): Promise<unknown> {
     if (name === "get_config") return this.configStore.getConfig();
     if (name === "set_config_value") return this.configStore.setConfigValue(requireString(input.key, "key"), input.value);

@@ -128,3 +128,27 @@ describe("OperationIpcClient deadlines", () => {
     }
   });
 });
+
+test("OperationIpcClient propagates an absolute deadlineAt derived from timeoutMs", async () => {
+  const socketPath = await tempSocket();
+  let deadlineAt: number | undefined;
+  const before = Date.now();
+  const server: Server = createServer((socket: Socket) => {
+    const decoder = new JsonLineDecoder();
+    socket.on("data", (chunk) => {
+      for (const value of decoder.push(chunk)) {
+        const message = parseClientMessage(value);
+        if (message.type !== "operation.request") continue;
+        deadlineAt = message.deadlineAt;
+        socket.write(encodeFrame({ type: "operation.response", protocolVersion: PROTOCOL_VERSION, requestId: message.requestId, result: { ok: true } }));
+      }
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+  try {
+    await new OperationIpcClient(socketPath).execute("get_config", {}, { timeoutMs: 750 });
+    expect(deadlineAt).toBeNumber();
+    expect(deadlineAt!).toBeGreaterThanOrEqual(before + 700);
+    expect(deadlineAt!).toBeLessThanOrEqual(Date.now() + 800);
+  } finally { server.close(); }
+});

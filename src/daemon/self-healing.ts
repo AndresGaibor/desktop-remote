@@ -1,4 +1,4 @@
-import type { OperationExecutor } from "../mcp/handler";
+import type { OperationExecutionOptions, OperationExecutor } from "../mcp/handler";
 import { ProcessManager } from "../process/manager";
 
 export const DEFAULT_DEADLINE_MS = 20_000;
@@ -126,7 +126,7 @@ export class SelfHealingExecutor {
   async execute(
     name: string,
     input: Record<string, unknown>,
-    options?: { traceId?: string },
+    options?: OperationExecutionOptions,
   ): Promise<unknown> {
     const id = `op-${++this.opCounter}`;
     const startedAt = this.now();

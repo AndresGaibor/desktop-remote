@@ -27,6 +27,7 @@ export class OperationIpcClient {
   ): Promise<unknown> {
     const requestId = `operation-${++this.requestCounter}`;
     const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    const deadlineAt = Date.now() + timeoutMs;
     const socket = createConnection(this.socketPath);
     const decoder = new JsonLineDecoder();
     let settled = false;
@@ -88,6 +89,7 @@ export class OperationIpcClient {
             requestId,
             name,
             input,
+            deadlineAt,
             ...(options.traceId !== undefined ? { traceId: options.traceId } : {}),
           }));
         } catch (error) {

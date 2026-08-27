@@ -4,7 +4,7 @@ import { RuntimeSessionStore } from "../session/runtime-store";
 import { HistoryStore } from "./history-store";
 import type { RuntimeSessionSnapshot } from "../session/types";
 import type { SupervisorStatus } from "./supervisor";
-import type { OperationExecutor } from "../mcp/handler";
+import type { OperationExecutionOptions, OperationExecutor } from "../mcp/handler";
 import type { WatchdogHungEvent } from "./self-healing";
 
 export interface SupervisorController {
@@ -103,7 +103,7 @@ export class DesktopRemoteDaemon {
   status(): DaemonStatus {
     return { ...this.supervisor.status(), retainedCalls: this.store.snapshot().counts.total };
   }
-  execute(name: string, input: Record<string, unknown>, options?: { traceId?: string }): Promise<unknown> {
+  execute(name: string, input: Record<string, unknown>, options?: OperationExecutionOptions): Promise<unknown> {
     if (!this.operationExecutor) return Promise.reject(new Error("Daemon operation executor is unavailable"));
     return this.operationExecutor.execute(name, input, options);
   }

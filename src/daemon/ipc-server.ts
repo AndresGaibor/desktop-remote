@@ -16,13 +16,17 @@ import {
   type DesktopRemotePaths,
 } from "../platform/paths";
 import type { DaemonStatus } from "./daemon";
+import type { OperationExecutionOptions } from "../mcp/handler";
+
+type OperationRequest = Extract<ClientMessage, { type: "operation.request" }>;
+const MAX_OPERATION_ERROR_BYTES = 4_096;
 
 export interface IpcDaemonSource {
   snapshot(): RuntimeSessionSnapshot;
   status(): DaemonStatus;
   onEvent(listener: (event: RuntimeEvent) => void): () => void;
   stop(): Promise<void>;
-  execute(name: string, input: Record<string, unknown>, options?: { traceId?: string }): Promise<unknown>;
+  execute(name: string, input: Record<string, unknown>, options?: OperationExecutionOptions): Promise<unknown>;
 }
 
 export interface DaemonIpcServerOptions {
@@ -146,24 +150,7 @@ export class DaemonIpcServer {
         });
         return;
       case "operation.request":
-        try {
-          const result = await this.source.execute(message.name, message.input, { traceId: message.traceId });
-          this.send(socket, {
-            type: "operation.response",
-            protocolVersion: PROTOCOL_VERSION,
-            requestId: message.requestId,
-            result,
-            ...(message.traceId !== undefined ? { traceId: message.traceId } : {}),
-          });
-        } catch (error) {
-          this.send(socket, {
-            type: "operation.response",
-            protocolVersion: PROTOCOL_VERSION,
-            requestId: message.requestId,
-            error: error instanceof Error ? error.message : String(error),
-            ...(message.traceId !== undefined ? { traceId: message.traceId } : {}),
-          });
-        }
+        await this.handleOperation(socket, message);
         return;
       case "ping":
         if (this.visualLease?.socket === socket) {
@@ -179,6 +166,69 @@ export class DaemonIpcServer {
       case "shutdown":
         await this.source.stop();
         return;
+    }
+  }
+
+  private async handleOperation(socket: Socket, message: OperationRequest): Promise<void> {
+    const controller = new AbortController();
+    let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+    let onSocketClose: (() => void) | undefined;
+
+    const deadlinePromise = message.deadlineAt === undefined
+      ? undefined
+      : new Promise<never>((_, reject) => {
+        const abortAtDeadline = () => {
+          controller.abort();
+          reject(new Error("Desktop Remote operation deadline exceeded"));
+        };
+        const remainingMs = message.deadlineAt! - this.now();
+        if (remainingMs <= 0) {
+          abortAtDeadline();
+          return;
+        }
+        deadlineTimer = setTimeout(abortAtDeadline, remainingMs);
+        deadlineTimer.unref?.();
+      });
+
+    const socketClosedPromise = new Promise<never>((_, reject) => {
+      onSocketClose = () => {
+        controller.abort();
+        reject(new Error("Desktop Remote operation IPC connection closed"));
+      };
+      socket.once("close", onSocketClose);
+      if (socket.destroyed) onSocketClose();
+    });
+
+    const executePromise = Promise.resolve().then(() => this.source.execute(message.name, message.input, {
+      signal: controller.signal,
+      ...(message.traceId !== undefined ? { traceId: message.traceId } : {}),
+      ...(message.deadlineAt !== undefined ? { deadlineAt: message.deadlineAt } : {}),
+    }));
+
+    try {
+      const pending = [executePromise, socketClosedPromise];
+      if (deadlinePromise) pending.push(deadlinePromise);
+      const result = await Promise.race(pending);
+      this.send(socket, {
+        type: "operation.response",
+        protocolVersion: PROTOCOL_VERSION,
+        requestId: message.requestId,
+        result,
+        ...(message.traceId !== undefined ? { traceId: message.traceId } : {}),
+      });
+    } catch (error) {
+      if (!socket.destroyed) {
+        this.send(socket, {
+          type: "operation.response",
+          protocolVersion: PROTOCOL_VERSION,
+          requestId: message.requestId,
+          error: boundedOperationError(error),
+          ...(message.traceId !== undefined ? { traceId: message.traceId } : {}),
+        });
+      }
+    } finally {
+      if (deadlineTimer !== undefined) clearTimeout(deadlineTimer);
+      if (onSocketClose !== undefined) socket.off("close", onSocketClose);
     }
   }
 
@@ -305,6 +355,14 @@ export class DaemonIpcServer {
     }
     await unlink(this.paths.socketPath);
   }
+}
+
+function boundedOperationError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (Buffer.byteLength(message) <= MAX_OPERATION_ERROR_BYTES) return message;
+  let end = Math.min(message.length, MAX_OPERATION_ERROR_BYTES);
+  while (end > 0 && Buffer.byteLength(message.slice(0, end)) > MAX_OPERATION_ERROR_BYTES) end -= 1;
+  return message.slice(0, end);
 }
 
 function listen(server: Server, path: string): Promise<void> {
