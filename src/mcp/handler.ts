@@ -150,15 +150,19 @@ export function createOperationHandler(
       return createBoundedToolResult(result);
     } catch (error) {
       const durationMs = Date.now() - startedAt;
-      safeLog("error", "mcp.request.error", {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const eventName = /^Desktop Remote operation timed out after \d+ms$/.test(errorMessage)
+        ? "mcp.request.timeout"
+        : "mcp.request.error";
+      safeLog("error", eventName, {
         traceId,
         toolName: name,
         durationMs,
         activeRequests: activeRequests - 1,
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMessage,
       });
       return {
-        content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
+        content: [{ type: "text", text: errorMessage }],
         isError: true,
       };
     } finally {
