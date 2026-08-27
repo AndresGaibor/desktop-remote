@@ -1,3 +1,4 @@
+import "./zod-lazy-patch";
 import { platform as nodePlatform } from "node:os";
 import { readFile, statfs } from "node:fs/promises";
 import { join } from "node:path";
