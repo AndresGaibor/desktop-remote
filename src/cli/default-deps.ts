@@ -53,7 +53,7 @@ export function createDefaultCliDependencies(): CliDependencies {
       await installProductionArtifacts(paths);
       await restartTunnel();
     },
-    onAfterManagerRestart: restartTunnel,
+    onBeforeManagerRestart: restartTunnel,
   });
 
   return {

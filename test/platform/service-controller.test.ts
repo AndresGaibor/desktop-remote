@@ -16,6 +16,33 @@ class FakeManager {
 }
 
 describe("ServiceController", () => {
+  test("restart recarga servicios companion antes de reiniciar el daemon", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "dr-service-restart-"));
+    const paths = makeTestPaths(dir);
+    const calls: string[] = [];
+    const controller = new ServiceController({
+      paths,
+      manager: {
+        install: async () => {},
+        start: async () => {},
+        stop: async () => {},
+        restart: async () => { calls.push("daemon.restart"); },
+      },
+      requestStatus: async () => ({
+        state: "online",
+        restartCount: 0,
+        consecutiveFailures: 0,
+        startedAt: Date.now(),
+        retainedCalls: 0,
+      }),
+      onBeforeManagerRestart: async () => { calls.push("companion.restart"); },
+    });
+
+    await controller.restart();
+
+    expect(calls).toEqual(["companion.restart", "daemon.restart"]);
+  });
+
   test("stop persists stopped before disabling the service", async () => {
     const dir = await mkdtemp(join(tmpdir(), "dr-service-stop-"));
     const paths = makeTestPaths(dir);
