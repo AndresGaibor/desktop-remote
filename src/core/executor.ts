@@ -10,6 +10,7 @@ import { writeDocxFile } from "../formats/docx";
 import { ConfigStore } from "../config/store";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { summarizeToolCall } from "../telemetry/tool-call-summary";
 
 export class DesktopOperationExecutor {
   private readonly processes = new ProcessManager();
@@ -50,10 +51,12 @@ export class DesktopOperationExecutor {
     options?: { traceId?: string },
   ): Promise<void> {
     try {
+      const summary = summarizeToolCall(name, input, partial.result, partial.error);
       await this.configStore.recordToolCall({
         toolName: name,
-        arguments: input,
-        ...partial,
+        arguments: summary.arguments,
+        ...(summary.result === undefined ? {} : { result: summary.result }),
+        ...(summary.error === undefined ? {} : { error: summary.error }),
         startedAt: startedAt.toISOString(),
         completedAt: new Date().toISOString(),
         durationMs: Date.now() - startedAt.getTime(),

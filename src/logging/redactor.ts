@@ -21,6 +21,9 @@ const SENSITIVE_KEYS = new Set([
 
 const QUERY_PARAMETER_PATTERN = /([?&])([^=&#\s]+)=([^&#\s]*)/g;
 const API_KEY_PATTERN = /\bsk-[A-Za-z0-9_-]{8,}\b/gi;
+const GITHUB_PAT_PATTERN = /\bgithub_pat_[A-Za-z0-9_]{8,}\b/gi;
+const GITHUB_TOKEN_PATTERN = /\bgh[pousr]_[A-Za-z0-9]{20,}\b/gi;
+const SLACK_TOKEN_PATTERN = /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/gi;
 
 export function redactEvent(event: RuntimeEvent): RuntimeEvent {
   return redactValue(event) as RuntimeEvent;
@@ -51,6 +54,9 @@ export function redactText(value: string): string {
     )
     .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [REDACTED]")
     .replace(API_KEY_PATTERN, "[REDACTED]")
+    .replace(GITHUB_PAT_PATTERN, "[REDACTED]")
+    .replace(GITHUB_TOKEN_PATTERN, "[REDACTED]")
+    .replace(SLACK_TOKEN_PATTERN, "[REDACTED]")
     .replace(/\b[A-Z0-9]{4}-[A-Z0-9]{4}\b/g, "[REDACTED]");
 }
 

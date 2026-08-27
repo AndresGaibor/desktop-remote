@@ -25,6 +25,9 @@ describe("RotatingDaemonLog", () => {
   test("redacts credentials in messages and nested structured data", async () => {
     const { directory, path, log } = await makeLog({ maxBytes: 8_192 });
     const rawApiKey = "sk-live-do-not-log-0123456789";
+    const githubPat = "github_pat_11AAABBBCCCDDDEEEFFF";
+    const githubToken = "ghp_abcdefghijklmnopqrstuvwxyz123456";
+    const slackToken = "xox" + "b-1234567890-abcdefghijklmnop";
 
     await log.warn(
       `authentication failed at https://example.test/device?token=url-secret api=${rawApiKey}`,
@@ -34,7 +37,7 @@ describe("RotatingDaemonLog", () => {
         nested: {
           password: "password-secret",
           authUrl: "https://example.test/device?token=query-secret",
-          diagnostic: `transport error ${rawApiKey}`,
+          diagnostic: `transport error ${rawApiKey} ${githubPat} ${githubToken} ${slackToken}`,
         },
       },
     );
@@ -55,6 +58,9 @@ describe("RotatingDaemonLog", () => {
     expect(contents).not.toContain("url-secret");
     expect(contents).not.toContain("query-secret");
     expect(contents).not.toContain(rawApiKey);
+    expect(contents).not.toContain(githubPat);
+    expect(contents).not.toContain(githubToken);
+    expect(contents).not.toContain(slackToken);
     expect(await stat(path).then((result) => result.mode & 0o777)).toBe(0o600);
     expect((await readdir(directory)).filter((entry) => entry.startsWith("daemon.log"))).toEqual([
       "daemon.log",

@@ -1,6 +1,8 @@
 import { chmod, mkdir, readFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { writeAtomicJson } from "../platform/atomic-file";
+import { summarizeToolCall } from "../telemetry/tool-call-summary";
+import { redactText } from "../logging/redactor";
 
 export interface DesktopRemoteConfig {
   blockedCommands: string[];
@@ -37,8 +39,6 @@ const DEFAULT_CONFIG: DesktopRemoteConfig = {
   telemetryEnabled: false,
 };
 const MAX_TOOL_CALLS = 200;
-const MAX_REDACTED_TEXT = 2000;
-const SENSITIVE_KEY = /(password|passwd|token|secret|api[-_]?key|authorization|cookie|credential)/i;
 
 export class ConfigStore {
   private readonly path: string;
@@ -66,7 +66,7 @@ export class ConfigStore {
 
   async recordToolCall(call: ToolCallRecord): Promise<void> {
     await this.ensureLoaded();
-    this.calls = [...this.calls, redact(call)].slice(-MAX_TOOL_CALLS);
+    this.calls = [...this.calls, sanitizeToolCall(call)].slice(-MAX_TOOL_CALLS);
     await this.persist();
   }
 
@@ -95,7 +95,7 @@ export class ConfigStore {
       .filter((call) => since === undefined || Date.parse(call.startedAt) >= since)
       .slice(-maxResults)
       .reverse()
-      .map((call) => redact(call));
+      .map((call) => sanitizeToolCall(call));
   }
 
   private async ensureLoaded(): Promise<void> {
@@ -105,14 +105,14 @@ export class ConfigStore {
       const parsed: unknown = JSON.parse(await readFile(this.path, "utf8"));
       if (!isRecord(parsed)) return;
       if (isConfig(parsed.config)) this.config = { ...cloneConfig(DEFAULT_CONFIG), ...parsed.config };
-      if (Array.isArray(parsed.calls)) this.calls = parsed.calls.filter(isToolCall).slice(-MAX_TOOL_CALLS).map((call) => redact(call));
+      if (Array.isArray(parsed.calls)) this.calls = parsed.calls.filter(isToolCall).slice(-MAX_TOOL_CALLS).map((call) => sanitizeToolCall(call));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") this.config = cloneConfig(DEFAULT_CONFIG);
     }
   }
 
   private async persist(): Promise<void> {
-    const snapshot = { config: cloneConfig(this.config), calls: this.calls.map((call) => redact(call)) };
+    const snapshot = { config: cloneConfig(this.config), calls: this.calls.map((call) => sanitizeToolCall(call)) };
     this.pendingWrite = this.pendingWrite.then(async () => {
       await mkdir(dirname(this.path), { recursive: true, mode: 0o700 });
       await writeAtomicJson(this.path, snapshot, 0o600);
@@ -165,12 +165,14 @@ function isRecord(value: unknown): value is Record<string, any> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function redact<T>(value: T, key = ""): T {
-  if (SENSITIVE_KEY.test(key)) return "[REDACTED]" as T;
-  if (typeof value === "string") return value.length > MAX_REDACTED_TEXT ? `${value.slice(0, MAX_REDACTED_TEXT)}…` as T : value;
-  if (Array.isArray(value)) return value.map((item) => redact(item)) as T;
-  if (isRecord(value)) return Object.fromEntries(Object.entries(value).map(([name, item]) => [name, redact(item, name)])) as T;
-  return value;
+function sanitizeToolCall(call: ToolCallRecord): ToolCallRecord {
+  const summary = summarizeToolCall(call.toolName, call.arguments, call.result, call.error);
+  return {
+    ...call,
+    arguments: summary.arguments,
+    ...(summary.result === undefined ? { result: undefined } : { result: summary.result }),
+    ...(summary.error === undefined ? { error: undefined } : { error: redactText(summary.error) }),
+  };
 }
 
 function cloneConfig(config: DesktopRemoteConfig): DesktopRemoteConfig {
