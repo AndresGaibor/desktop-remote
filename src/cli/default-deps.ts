@@ -25,12 +25,13 @@ import type { CliDependencies } from "./main";
 import { createMcpServer } from "../mcp/server";
 import { runMcpStdioServer } from "../mcp/run-stdio-server";
 import { OperationIpcClient } from "../client/operation-ipc-client";
-import { runDoctor, type DoctorDependencies, type DoctorServiceMetadata, formatDoctorReportJson } from "../doctor/doctor";
+import { runDoctor, type DoctorDependencies, type DoctorServiceMetadata, type DoctorReport, formatDoctorReportJson } from "../doctor/doctor";
 import { createSupportBundle } from "../doctor/support-bundle";
 import { computeToolSchemaHash } from "../config/schema-hash";
 import { computeMcpToolCatalogHash, createToolDefinitions } from "../mcp/tools";
 import { ConfigStore, defaultConfig } from "../config/store";
 import { readMcpRuntimeDiagnostics } from "../doctor/mcp-runtime-diagnostics";
+import { classifyIncident, incidentInputFromDoctor, parseIncidentOptions } from "../incident/incident";
 
 export function createDefaultCliDependencies(): CliDependencies {
   const paths = getDesktopRemotePaths();
@@ -108,6 +109,24 @@ export function createDefaultCliDependencies(): CliDependencies {
       } else {
         const text = await runDoctor("text", data);
         process.stdout.write(`${text}\n`);
+      }
+    },
+    incident: async (args) => {
+      const json = args.includes("--json");
+      const options = parseIncidentOptions(args.filter((arg) => arg !== "--json"));
+      const report = await runDoctor("json", await collectDoctorData(paths, manager));
+      const diagnosis = classifyIncident(incidentInputFromDoctor(report, options));
+      if (json) {
+        const output = {
+          ...diagnosis,
+          runtime: { healthy: report.local.healthy, daemon: report.local.daemon, mcp: report.local.mcp, tunnel: report.local.tunnel, controlPlane: !report.controlPlane.stale },
+          mcp: formatIncidentMcp(report),
+          tunnel: { queue: { depth: report.tunnel.selected.queue?.depth ?? null, capacity: report.tunnel.selected.queue?.capacity ?? null }, workers: { active: report.tunnel.selected.workers?.active ?? null, capacity: report.tunnel.selected.workers?.capacity ?? null, utilization: report.tunnel.selected.workers?.occupancy ?? null }, pollingAgeMs: report.controlPlane.pollingAgeMs ?? null },
+          schema: { drift: report.schemaHash.drift },
+        };
+        process.stdout.write(`${JSON.stringify(output)}\n`);
+      } else {
+        process.stdout.write(formatIncidentText(diagnosis, report));
       }
     },
     supportBundle: async (outputPath) => {
@@ -215,6 +234,52 @@ async function collectDoctorData(
     serviceStatus,
     mcpRuntimeDiagnostics,
   };
+}
+
+function formatIncidentMcp(report: DoctorReport) {
+  const lifecycle = report.mcp.lifecycle;
+  const backpressure = report.mcp.backpressure;
+  return {
+    runtimeInstanceId: lifecycle?.runtimeInstanceId ?? null,
+    connectionId: lifecycle?.connectionId ?? null,
+    initializeCount: lifecycle?.initializeCount ?? null,
+    toolsListCount: lifecycle?.toolsListCount ?? null,
+    toolsCallCount: lifecycle?.toolsCallCount ?? null,
+    toolsCallSuccessCount: lifecycle?.toolsCallSuccessCount ?? null,
+    toolsCallFailureCount: lifecycle?.toolsCallFailureCount ?? null,
+    lastInitializeAt: lifecycle?.lastInitializeAt ?? null,
+    lastToolsListAt: lifecycle?.lastToolsListAt ?? null,
+    lastToolsCallAt: lifecycle?.lastToolsCallAt ?? null,
+    backpressure: {
+      active: backpressure?.active ?? null,
+      activeLimit: backpressure?.activeLimit ?? null,
+      queued: backpressure?.queued ?? null,
+      queueLimit: backpressure?.queueLimit ?? null,
+      peakActive: backpressure?.peakActive ?? null,
+      peakQueued: backpressure?.peakQueued ?? null,
+      rejected: backpressure?.rejected ?? null,
+      lastRejectedAt: backpressure?.lastRejectedAt ?? null,
+      queueTimeouts: backpressure?.queueTimeouts ?? null,
+      lastQueueTimeoutAt: backpressure?.lastQueueTimeoutAt ?? null,
+    },
+  };
+}
+
+function formatIncidentText(diagnosis: ReturnType<typeof classifyIncident>, report: DoctorReport): string {
+  const lines = [
+    "Desktop Remote Incident Diagnosis",
+    "",
+    `Overall runtime     ${report.local.healthy ? "HEALTHY" : "UNHEALTHY"}`,
+    `Daemon              ${report.daemon.alive ? "HEALTHY" : "UNHEALTHY"}`,
+    `MCP                 ${report.mcp.reachable ? "HEALTHY" : "UNHEALTHY"}`,
+    `Tunnel              ${report.tunnel.healthy ? "HEALTHY" : "UNHEALTHY"}`,
+    `Control plane       ${report.controlPlane.stale ? "STALE" : "HEALTHY"}`,
+    "",
+    `Likely failure boundary\n${diagnosis.boundary}`,
+    `\nInterpretation\n${diagnosis.summary}`,
+  ];
+  if (diagnosis.evidence.length) lines.push("\nEvidence", ...diagnosis.evidence.map((item) => `- ${item.detail}`));
+  return `${lines.join("\n")}\n`;
 }
 
 async function checkDaemonAlive(paths: ReturnType<typeof getDesktopRemotePaths>): Promise<{ alive: boolean; pid?: number }> {

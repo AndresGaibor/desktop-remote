@@ -22,7 +22,11 @@ export interface McpBackpressureDiagnostics {
   queued: number;
   queueLimit: number;
   rejected: number;
+  lastRejectedAt?: number | null;
   queueTimeouts: number;
+  lastQueueTimeoutAt?: number | null;
+  peakActive?: number;
+  peakQueued?: number;
   observedAt: string;
 }
 
@@ -100,7 +104,11 @@ function parseBackpressure(data: Record<string, unknown>, observedAt: string): M
     queued: data.queued as number,
     queueLimit: data.queueLimit as number,
     rejected: data.rejected as number,
+    ...(typeof data.lastRejectedAt === "number" ? { lastRejectedAt: data.lastRejectedAt } : {}),
     queueTimeouts: data.queueTimeouts as number,
+    ...(typeof data.lastQueueTimeoutAt === "number" ? { lastQueueTimeoutAt: data.lastQueueTimeoutAt } : {}),
+    ...optionalNumber(data, "peakActive"),
+    ...optionalNumber(data, "peakQueued"),
     observedAt,
   };
 }

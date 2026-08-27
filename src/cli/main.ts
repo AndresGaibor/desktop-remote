@@ -25,6 +25,7 @@ export interface CliDependencies {
   tunnelDoctor(): Promise<void>;
   tunnelStatus(): Promise<void>;
   doctor(format: "json" | "text"): Promise<void>;
+  incident?: (args: string[]) => Promise<void>;
   supportBundle?: (outputPath?: string) => Promise<string | void>;
   repair?: () => Promise<string | void>;
   update?(): Promise<void>;
@@ -34,7 +35,7 @@ export interface CliDependencies {
   writeErr(text: string): void;
 }
 
-const ADMIN = new Set(["install", "start", "stop", "restart", "status", "logs", "attach", "replay", "daemon", "mcp", "tunnel", "doctor", "support-bundle", "repair", "update", "update-local", "rollback"]);
+const ADMIN = new Set(["install", "start", "stop", "restart", "status", "logs", "attach", "replay", "daemon", "mcp", "tunnel", "doctor", "incident", "support-bundle", "repair", "update", "update-local", "rollback"]);
 
 export async function runCli(argv: string[], deps: CliDependencies): Promise<number> {
   const command = argv[0];
@@ -82,6 +83,11 @@ export async function runCli(argv: string[], deps: CliDependencies): Promise<num
       }
       case "doctor": {
         await deps.doctor(argv.includes("--json") ? "json" : "text");
+        return 0;
+      }
+      case "incident": {
+        if (!deps.incident) throw new Error("incident is unavailable");
+        await deps.incident(argv.slice(1));
         return 0;
       }
       case "support-bundle": {
@@ -133,6 +139,7 @@ Commands:
   tunnel doctor                           Validate the local tunnel profile
   tunnel status                           Probe local tunnel liveness and readiness
   doctor [--json]                         Run health diagnostics (--json for machine-readable output)
+  incident [--json] [--at ISO|--since DURATION]  Classify the current local incident boundary
   support-bundle [path]                   Write a bounded local redacted diagnostics bundle
   repair                                  Opt-in repair of a locally proven dead/stuck tunnel
   update                                 Build and promote new binary transactionally

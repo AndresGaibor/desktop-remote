@@ -36,7 +36,11 @@ export interface McpBackpressureSnapshot {
   queued: number;
   queueLimit: number;
   rejected: number;
+  lastRejectedAt: number | null;
   queueTimeouts: number;
+  lastQueueTimeoutAt: number | null;
+  peakActive: number;
+  peakQueued: number;
 }
 
 export interface McpOperationRequestContext {
@@ -90,7 +94,11 @@ export function createOperationHandler(
 
   let activeRequests = 0;
   let rejectedRequests = 0;
+  let lastRejectedAt: number | null = null;
   let queueTimeouts = 0;
+  let lastQueueTimeoutAt: number | null = null;
+  let peakActive = 0;
+  let peakQueued = 0;
   let lastDequeuedRequester: string | undefined;
 
   type QueuedOperation = {
@@ -119,10 +127,16 @@ export function createOperationHandler(
     queued: queue.length,
     queueLimit: maxQueued,
     rejected: rejectedRequests,
+    lastRejectedAt,
     queueTimeouts,
+    lastQueueTimeoutAt,
+    peakActive,
+    peakQueued,
   });
 
   const logBackpressure = (reason: string) => {
+    peakActive = Math.max(peakActive, activeRequests);
+    peakQueued = Math.max(peakQueued, queue.length);
     safeLog("info", "mcp.backpressure.state", { ...snapshot(), reason });
   };
 
@@ -164,6 +178,7 @@ export function createOperationHandler(
 
     if (queue.length >= maxQueued) {
       rejectedRequests++;
+      lastRejectedAt = Date.now();
       logBackpressure("rejected");
       return "rejected";
     }
@@ -175,6 +190,7 @@ export function createOperationHandler(
         if (index === -1) return;
         queue.splice(index, 1);
         queueTimeouts++;
+        lastQueueTimeoutAt = Date.now();
         resolve("timeout");
         logBackpressure("queue-timeout");
       }, deadlineMs);
@@ -204,7 +220,7 @@ export function createOperationHandler(
         reason: "queue-full",
       });
       return {
-        content: [{ type: "text", text: "MCP_BUSY: operation queue is full. Try again later." }],
+        content: [{ type: "text", text: "MCP_BUSY: Desktop Remote MCP is busy. Retry later." }],
         isError: true,
       };
     }
