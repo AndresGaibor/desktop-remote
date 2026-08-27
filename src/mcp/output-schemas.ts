@@ -2,9 +2,11 @@ import { z } from "zod";
 
 const textPage = z.object({
   content: z.string(),
-  totalLines: z.number().int().nonnegative(),
+  totalLines: z.number().int().nonnegative().optional(),
   offset: z.number().int().nonnegative(),
   length: z.number().int().nonnegative(),
+  truncated: z.boolean(),
+  hasMore: z.boolean().optional(),
 });
 
 const excelCell = z.union([z.string(), z.number(), z.boolean(), z.null()]);
@@ -62,10 +64,21 @@ export const outputSchemas = {
   }),
   write_pdf: z.object({ path: z.string(), written: z.literal(true), format: z.literal("pdf") }),
   create_directory: z.object({ path: z.string(), created: z.literal(true) }),
-  list_directory: z.array(z.object({
-    name: z.string(),
-    type: z.enum(["file", "directory", "symlink"]),
-  })),
+  list_directory: z.union([
+    z.array(z.object({
+      name: z.string(),
+      type: z.enum(["file", "directory", "symlink"]),
+    })),
+    z.object({
+      entries: z.array(z.object({
+        name: z.string(),
+        type: z.enum(["file", "directory", "symlink"]),
+      })),
+      cursor: z.string().optional(),
+      hasMore: z.boolean(),
+      truncated: z.boolean().optional(),
+    }),
+  ]),
   move_file: z.object({ source: z.string(), destination: z.string(), moved: z.literal(true) }),
   get_file_info: z.object({
     path: z.string(),

@@ -30,6 +30,24 @@ describe("filesystem directories", () => {
     await expect(moveFile(source, destination)).resolves.toEqual({ source, destination, moved: true });
     await expect(readFile(destination, "utf8")).resolves.toBe("content");
   });
+
+  test("returns a bounded page and cursor for a large directory", async () => {
+    const directory = await temporaryDirectory();
+    await Promise.all(
+      Array.from({ length: 250 }, (_, index) => writeFile(join(directory, `entry-${index}.txt`), "", "utf8")),
+    );
+
+    const firstPage = await listDirectory(directory, 0, { limit: 25 });
+
+    expect(firstPage.entries).toHaveLength(25);
+    expect(firstPage.hasMore).toBe(true);
+    expect(firstPage.cursor).toBeDefined();
+    expect("totalEntries" in firstPage).toBe(false);
+
+    const secondPage = await listDirectory(directory, 0, { limit: 25, cursor: firstPage.cursor });
+    expect(secondPage.entries).toHaveLength(25);
+    expect(secondPage.entries[0]?.name).not.toBe(firstPage.entries[0]?.name);
+  });
 });
 
 async function temporaryDirectory(): Promise<string> {
