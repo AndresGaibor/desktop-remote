@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { editBlock } from "../../src/filesystem/edit";
@@ -62,6 +63,57 @@ describe("edit block", () => {
     await expect(editBlock(path, "old_target", "new", { replace_all: true })).resolves.toEqual({ path, edited: true });
     const result = await readFile(path, "utf8");
     expect(result).toBe("line1\nnew\nline3\nnew\nline5");
+  });
+
+  test("honors expected_replacements exactly before replacing", async () => {
+    const directory = await temporaryDirectory();
+    const path = join(directory, "note.txt");
+    await writeFile(path, "old\nold\n", "utf8");
+
+    await expect(editBlock(path, "old", "new", { expected_replacements: 2 }))
+      .resolves.toEqual({ path, edited: true });
+    await expect(readFile(path, "utf8")).resolves.toBe("new\nnew\n");
+
+    await expect(editBlock(path, "new", "changed", { expected_replacements: 3 }))
+      .rejects.toThrow(/expected.*3|replacement.*3/i);
+    await expect(readFile(path, "utf8")).resolves.toBe("new\nnew\n");
+  });
+
+  test("replaces an explicit character range with content", async () => {
+    const directory = await temporaryDirectory();
+    const path = join(directory, "note.txt");
+    await writeFile(path, "alpha\nbeta\ngamma", "utf8");
+
+    await expect(editBlock(path, undefined, undefined, {
+      range: { start: 6, end: 10 },
+      content: "BETA",
+    })).resolves.toEqual({ path, edited: true });
+    await expect(readFile(path, "utf8")).resolves.toBe("alpha\nBETA\ngamma");
+  });
+
+  test("rejects a stale expected_sha256 without changing the file", async () => {
+    const directory = await temporaryDirectory();
+    const path = join(directory, "note.txt");
+    const original = "before\nold\nafter";
+    await writeFile(path, original, "utf8");
+    const expectedSha256 = createHash("sha256").update(original).digest("hex");
+    await writeFile(path, "changed\nold\nafter", "utf8");
+
+    await expect(editBlock(path, "old", "new", { expected_sha256: expectedSha256 }))
+      .rejects.toThrow(/conflict|changed|sha/i);
+    await expect(readFile(path, "utf8")).resolves.toBe("changed\nold\nafter");
+  });
+
+  test("atomically replaces content while preserving the existing file mode", async () => {
+    const directory = await temporaryDirectory();
+    const path = join(directory, "note.txt");
+    await writeFile(path, "old", "utf8");
+    await chmod(path, 0o754);
+
+    await editBlock(path, "old", "new");
+
+    expect((await stat(path)).mode & 0o777).toBe(0o754);
+    await expect(readFile(path, "utf8")).resolves.toBe("new");
   });
 });
 

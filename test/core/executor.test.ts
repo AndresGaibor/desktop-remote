@@ -37,6 +37,21 @@ describe("DesktopOperationExecutor", () => {
     await expect(readFile(path, "utf8")).resolves.toBe("created");
   });
 
+  test("executes edit_block find/replace with expected_replacements", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "desktop-remote-edit-executor-"));
+    directories.push(directory);
+    const path = join(directory, "note.txt");
+    await writeFile(path, "old\nold\n", "utf8");
+
+    await expect(new DesktopOperationExecutor().execute("edit_block", {
+      file_path: path,
+      old_string: "old",
+      new_string: "new",
+      expected_replacements: 2,
+    })).resolves.toEqual({ path, edited: true });
+    await expect(readFile(path, "utf8")).resolves.toBe("new\nnew\n");
+  });
+
   test("usa el formato Excel para escribir y leer archivos de hoja de cálculo", async () => {
     const directory = await mkdtemp(join(tmpdir(), "desktop-remote-excel-executor-"));
     directories.push(directory);
@@ -81,6 +96,8 @@ describe("DesktopOperationExecutor", () => {
       path: directory,
       pattern: "needle",
       searchType: "content",
+      contextLines: 0,
+      earlyTermination: true,
     }) as { id: string; status: string };
     const searchId = started.id;
     expect(started.id).toEqual(expect.any(String));
@@ -90,7 +107,12 @@ describe("DesktopOperationExecutor", () => {
       offset: 0,
       length: 10,
     });
-    expect(page).toMatchObject({ id: searchId, results: [join(directory, "match.txt")], total: 1, done: true });
+    expect(page).toMatchObject({
+      id: searchId,
+      results: [{ path: join(directory, "match.txt"), line: 1, column: 1, match: "needle", before: [], after: [] }],
+      total: 1,
+      done: true,
+    });
     await expect(executor.execute("list_searches", {})).resolves.toEqual([
       { id: searchId, status: "completed" },
     ]);

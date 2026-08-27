@@ -26,6 +26,15 @@ const processOutput = z.object({
   exitCode: z.number().int().optional(),
 });
 
+const contentSearchMatch = z.object({
+  path: z.string(),
+  line: z.number().int().positive(),
+  column: z.number().int().positive(),
+  match: z.string(),
+  before: z.array(z.string()),
+  after: z.array(z.string()),
+});
+
 const toolCallRecord = z.object({
   toolName: z.string(),
   arguments: z.unknown(),
@@ -86,9 +95,10 @@ export const outputSchemas = {
   get_more_search_results: z.object({
     id: z.string(),
     sessionId: z.string(),
-    results: z.array(z.string()),
+    results: z.array(z.union([z.string(), contentSearchMatch])),
     total: z.number().int().nonnegative(),
     done: z.boolean(),
+    truncated: z.boolean().optional(),
   }),
   stop_search: undefined,
   list_searches: z.array(z.object({ id: z.string(), status: z.string() })),

@@ -2,15 +2,19 @@ import { describe, expect, test } from "bun:test";
 import { toolSchemas } from "../../src/mcp/schemas";
 
 describe("MCP public contract fields", () => {
-  test("does not advertise fields that the executor does not implement yet", () => {
-    expect(Object.keys(toolSchemas.edit_block.shape)).not.toContain("range");
-    expect(Object.keys(toolSchemas.edit_block.shape)).not.toContain("content");
-    expect(Object.keys(toolSchemas.edit_block.shape)).not.toContain("expected_replacements");
-    expect(Object.keys(toolSchemas.edit_block.shape)).not.toContain("options");
+  test("advertises the implemented edit_block modes and safeguards", () => {
+    expect(Object.keys(toolSchemas.edit_block.shape)).toContain("range");
+    expect(Object.keys(toolSchemas.edit_block.shape)).toContain("content");
+    expect(Object.keys(toolSchemas.edit_block.shape)).toContain("expected_replacements");
+    expect(Object.keys(toolSchemas.edit_block.shape)).toContain("expected_sha256");
 
-    expect(Object.keys(toolSchemas.start_search.shape)).not.toContain("contextLines");
-    expect(Object.keys(toolSchemas.start_search.shape)).not.toContain("timeout_ms");
-    expect(Object.keys(toolSchemas.start_search.shape)).not.toContain("earlyTermination");
+    expect(Object.keys(toolSchemas.start_search.shape)).toContain("contextLines");
+    expect(Object.keys(toolSchemas.start_search.shape)).toContain("timeout_ms");
+    expect(Object.keys(toolSchemas.start_search.shape)).toContain("earlyTermination");
+  });
+
+  test("does not advertise unrelated unimplemented fields", () => {
+    expect(Object.keys(toolSchemas.edit_block.shape)).not.toContain("options");
 
     expect(Object.keys(toolSchemas.read_file.shape)).not.toContain("sheet");
     expect(Object.keys(toolSchemas.read_file.shape)).not.toContain("range");

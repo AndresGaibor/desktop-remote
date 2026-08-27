@@ -131,10 +131,22 @@ export class DesktopOperationExecutor {
     }
     if (name === "get_file_info") return getFileInfo(requireString(input.path, "path"));
     if (name === "edit_block") {
+      const range = input.range === undefined ? undefined : requireEditRange(input.range);
+      const content = input.content === undefined ? undefined : requireStringValue(input.content, "content");
       return editBlock(
         requireString(input.path ?? input.file_path, "path"),
-        requireString(input.old_string, "old_string"),
-        requireString(input.new_string, "new_string"),
+        input.old_string === undefined ? undefined : requireString(input.old_string, "old_string"),
+        input.new_string === undefined ? undefined : requireStringValue(input.new_string, "new_string"),
+        {
+          ...(range === undefined ? {} : { range }),
+          ...(content === undefined ? {} : { content }),
+          ...(input.expected_replacements === undefined
+            ? {}
+            : { expected_replacements: requirePositiveInteger(input.expected_replacements, "expected_replacements") }),
+          ...(input.expected_sha256 === undefined
+            ? {}
+            : { expected_sha256: requireString(input.expected_sha256, "expected_sha256") }),
+        },
       );
     }
     if (name === "start_process") {
@@ -183,6 +195,11 @@ export class DesktopOperationExecutor {
         includeHidden: input.includeHidden === undefined
           ? false
           : requireBoolean(input.includeHidden, "includeHidden"),
+        contextLines: optionalNonNegativeInteger(input.contextLines, "contextLines") ?? 5,
+        timeout_ms: optionalPositiveInteger(input.timeout_ms, "timeout_ms"),
+        earlyTermination: input.earlyTermination === undefined
+          ? undefined
+          : requireBoolean(input.earlyTermination, "earlyTermination"),
         literalSearch: input.literalSearch === undefined
           ? false
           : requireBoolean(input.literalSearch, "literalSearch"),
@@ -238,6 +255,22 @@ function requireStringArray(value: unknown, field: string): string[] {
 function requireString(value: unknown, field: string): string {
   if (typeof value !== "string" || !value.trim()) throw new Error(`${field} must be a non-empty string`);
   return value;
+}
+
+function requireStringValue(value: unknown, field: string): string {
+  if (typeof value !== "string") throw new Error(`${field} must be a string`);
+  return value;
+}
+
+function requireEditRange(value: unknown): { start: number; end: number } {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("range must be an object");
+  }
+  const range = value as { start?: unknown; end?: unknown };
+  if (!Number.isSafeInteger(range.start) || !Number.isSafeInteger(range.end)) {
+    throw new Error("range start and end must be integers");
+  }
+  return { start: range.start as number, end: range.end as number };
 }
 
 function optionalString(value: unknown, field: string): string | undefined {

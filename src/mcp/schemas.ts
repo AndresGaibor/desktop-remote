@@ -79,6 +79,13 @@ export const toolSchemas = {
     file_path: z.string().min(1),
     old_string: z.string().optional(),
     new_string: z.string().optional(),
+    range: z.object({
+      start: z.number().int().nonnegative(),
+      end: z.number().int().nonnegative(),
+    }).optional(),
+    content: z.string().optional(),
+    expected_replacements: z.number().int().positive().optional(),
+    expected_sha256: z.string().regex(/^[a-f0-9]{64}$/i).optional(),
     origin: z.enum(["ui", "llm"]).optional(),
   }),
 
@@ -90,6 +97,9 @@ export const toolSchemas = {
     ignoreCase: z.boolean().optional().default(true),
     maxResults: z.number().int().positive().optional(),
     includeHidden: z.boolean().optional().default(false),
+    contextLines: z.number().int().nonnegative().optional().default(5),
+    timeout_ms: z.number().int().positive().optional(),
+    earlyTermination: z.boolean().optional(),
     literalSearch: z.boolean().optional().default(false),
     origin: z.enum(["ui", "llm"]).optional(),
   }),
