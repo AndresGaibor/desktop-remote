@@ -12,6 +12,7 @@
     "start": "bun run bin/cli.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
+    "test:build:prod": "bun test ./test/build/production-artifact.gate.ts",
     "daemon:dev": "bun run bin/daemon.ts",
     "attach:dev": "bun run bin/attach.ts",
     "build:prod": "bun run scripts/build-production.ts",
