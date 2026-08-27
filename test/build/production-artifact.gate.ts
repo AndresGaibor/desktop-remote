@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { buildProduction } from "../../scripts/build-production";
+import { outputSchemas } from "../../src/mcp/output-schemas";
 
 const repoRoot = join(import.meta.dir, "../..");
 
@@ -106,19 +107,18 @@ describe("production artifact regression gate", () => {
 
         const started = await client.callTool({ name: "start_process", arguments: { command: "printf contract-ok", cwd: "/" } });
         expect(started.isError).not.toBe(true);
-        const startedContent = started.structuredContent as { id: string; pid: number; cwd: string };
-        expect(typeof startedContent.pid).toBe("number");
-        expect(startedContent.pid).toBeGreaterThan(0);
-        expect(typeof startedContent.id).toBe("string");
+        const startedContent = outputSchemas.start_process.parse(started.structuredContent);
 
         await new Promise((resolve) => setTimeout(resolve, 500));
 
         const output = await client.callTool({ name: "read_process_output", arguments: { pid: startedContent.pid } });
         expect(output.isError).not.toBe(true);
-        const outputContent = output.structuredContent as { stdout: string; status: string };
-        expect(typeof outputContent.stdout).toBe("string");
+        const outputContent = outputSchemas.read_process_output.parse(output.structuredContent);
         expect(outputContent.stdout).toContain("contract-ok");
+        expect(outputContent.status).not.toBe("failed");
         expect(["completed", "running"]).toContain(outputContent.status);
+
+        await client.callTool({ name: "kill_process", arguments: { pid: startedContent.pid } });
       } finally {
         await client.close();
       }
