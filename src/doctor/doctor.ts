@@ -15,6 +15,11 @@ export interface DoctorBuildMetadata {
   daemonPresent?: boolean;
 }
 
+export interface DoctorExpectedLayout {
+  layout?: "single" | "split";
+  daemonArgs?: string[];
+}
+
 export interface DoctorServiceMetadata {
   loaded?: boolean;
   enabled?: boolean;
@@ -41,6 +46,9 @@ export interface DoctorDependencies {
   buildMetadata?: DoctorBuildMetadata;
   logPaths?: Record<string, boolean>;
   serviceStatus?: DoctorServiceMetadata;
+  mcpHash?: string;
+  daemonHash?: string;
+  expectedLayout?: DoctorExpectedLayout;
 }
 
 export interface DoctorReport {
@@ -101,6 +109,14 @@ export interface DoctorReport {
   timestamp: string;
   build: DoctorBuildMetadata;
   healthy: boolean;
+  contract?: {
+    mcpHash: string;
+    daemonHash: string;
+    matches: boolean;
+  };
+  installedBuild?: DoctorBuildMetadata;
+  loadedService?: DoctorServiceMetadata;
+  historicalWarnings?: string[];
 }
 
 export async function runDoctor(format: "json", deps: DoctorDependencies): Promise<DoctorReport>;
@@ -134,12 +150,24 @@ function buildReport(deps: DoctorDependencies): DoctorReport {
   const diagnostics = deps.tunnelDiagnostics;
   const selected = diagnostics?.selected ?? { liveness: tunnelHealthy, readiness: tunnelHealthy };
   const controlPlane = describeControlPlane(selected);
+
+  const hashesMatch = deps.mcpHash !== undefined && deps.daemonHash !== undefined &&
+    deps.mcpHash === deps.daemonHash;
+  const layoutMismatch = deps.expectedLayout !== undefined && deps.buildMetadata !== undefined &&
+    (deps.expectedLayout.layout !== undefined && deps.expectedLayout.layout !== deps.buildMetadata.layout ||
+     deps.expectedLayout.daemonArgs !== undefined && deps.buildMetadata.daemonArgs !== undefined &&
+       JSON.stringify(deps.expectedLayout.daemonArgs) !== JSON.stringify(deps.buildMetadata.daemonArgs));
+  const contractMatches = hashesMatch && !layoutMismatch;
+  const contract = (deps.mcpHash !== undefined && deps.daemonHash !== undefined) || deps.expectedLayout !== undefined
+    ? { mcpHash: deps.mcpHash ?? "", daemonHash: deps.daemonHash ?? "", matches: contractMatches }
+    : undefined;
+
   const localHealthy = daemonAlive &&
     mcpReachable &&
     tunnelHealthy &&
-    recentErrors.length === 0 &&
     configValid &&
-    !schemaHash.drift;
+    !schemaHash.drift &&
+    (contract === undefined || contract.matches);
   const healthy = localHealthy && !controlPlane.stale;
   const mcpStatus = selected.mcp;
 
@@ -166,7 +194,7 @@ function buildReport(deps: DoctorDependencies): DoctorReport {
     controlPlane,
     disk: { freeBytes: diskFreeBytes, totalBytes: diskTotalBytes },
     logs: {
-      recentErrors: recentErrors.slice(0, MAX_RECENT_ERRORS).map(sanitizeDiagnosticText),
+      recentErrors: [],
       paths: sanitizeLogPaths(deps.logPaths),
     },
     schemaHash,
@@ -177,6 +205,10 @@ function buildReport(deps: DoctorDependencies): DoctorReport {
     timestamp: new Date().toISOString(),
     build: sanitizeBuildMetadata(deps.buildMetadata),
     healthy,
+    contract,
+    installedBuild: sanitizeBuildMetadata(deps.buildMetadata),
+    loadedService: deps.serviceStatus,
+    historicalWarnings: recentErrors.slice(0, MAX_RECENT_ERRORS).map(sanitizeDiagnosticText),
   };
 }
 

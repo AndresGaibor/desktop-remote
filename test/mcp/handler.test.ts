@@ -2,7 +2,34 @@ import { describe, expect, test } from "bun:test";
 import { createOperationHandler } from "../../src/mcp/handler";
 import { outputSchemas } from "../../src/mcp/output-schemas";
 
+const RUNTIME_VERSION_MISMATCH_MESSAGE =
+  "RUNTIME_VERSION_MISMATCH: MCP and daemon were built from different runtime contracts.";
+
 describe("MCP operation handler", () => {
+  test("RUNTIME_VERSION_MISMATCH propagates as MCP error without Zod structured validation", async () => {
+    const events: Array<{ level: string; message: string; data?: unknown }> = [];
+    const logger = {
+      info: (message: string, data?: unknown) => events.push({ level: "info", message, data }),
+      warn: (message: string, data?: unknown) => events.push({ level: "warn", message, data }),
+      error: (message: string, data?: unknown) => events.push({ level: "error", message, data }),
+    };
+    const handler = createOperationHandler({
+      execute: async () => { throw new Error(RUNTIME_VERSION_MISMATCH_MESSAGE); },
+    }, logger);
+
+    const result = await handler("read_file", { path: "/tmp/example" });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toBe(RUNTIME_VERSION_MISMATCH_MESSAGE);
+    expect(result.structuredContent).toBeUndefined();
+    expect(result.content[0]?.text).not.toContain("Invalid structured content");
+    const mismatchEvent = events.find((e) => e.message === "mcp.request.error");
+    expect(mismatchEvent).toBeDefined();
+    expect(mismatchEvent?.data).toMatchObject({
+      error: RUNTIME_VERSION_MISMATCH_MESSAGE,
+    });
+  });
+
   test("classifies operation deadline failures as mcp.request.timeout", async () => {
     const events: Array<{ level: string; message: string; data?: unknown }> = [];
     const logger = {
