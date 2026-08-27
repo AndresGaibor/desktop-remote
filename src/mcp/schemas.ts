@@ -15,23 +15,18 @@ export const toolSchemas = {
     command: z.string().min(1),
     timeout_ms: z.number().int().positive().default(30000),
     shell: z.string().optional(),
-    verbose_timing: z.boolean().optional(),
   }),
 
   read_process_output: z.object({
     pid: z.number().int().positive(),
-    timeout_ms: z.number().int().positive().optional(),
     offset: z.number().int().nonnegative().optional(),
     length: z.number().int().positive().optional(),
-    verbose_timing: z.boolean().optional(),
   }),
 
   interact_with_process: z.object({
     pid: z.number().int().positive(),
     input: z.string(),
-    timeout_ms: z.number().int().positive().optional(),
     wait_for_prompt: z.boolean().optional(),
-    verbose_timing: z.boolean().optional(),
   }),
 
   force_terminate: z.object({ pid: z.number().int().positive() }),
@@ -47,9 +42,6 @@ export const toolSchemas = {
     isUrl: z.boolean().optional().default(false),
     offset: z.number().int().nonnegative().optional().default(0),
     length: z.number().int().positive().optional().default(1000),
-    sheet: z.string().optional(),
-    range: z.string().optional(),
-    options: z.record(z.string(), z.unknown()).optional(),
     origin: z.enum(["ui", "llm"]).optional(),
   }),
 
@@ -66,7 +58,6 @@ export const toolSchemas = {
     path: z.string().min(1),
     content: z.union([z.string(), z.array(z.record(z.string(), z.unknown()))]),
     outputPath: z.string().optional(),
-    options: z.record(z.string(), z.unknown()).optional(),
   }),
 
   create_directory: z.object({ path: z.string().min(1) }),
@@ -88,10 +79,6 @@ export const toolSchemas = {
     file_path: z.string().min(1),
     old_string: z.string().optional(),
     new_string: z.string().optional(),
-    range: z.object({ start: z.number().int(), end: z.number().int() }).optional(),
-    content: z.string().optional(),
-    expected_replacements: z.number().int().positive().optional(),
-    options: z.record(z.string(), z.unknown()).optional(),
     origin: z.enum(["ui", "llm"]).optional(),
   }),
 
@@ -103,9 +90,6 @@ export const toolSchemas = {
     ignoreCase: z.boolean().optional().default(true),
     maxResults: z.number().int().positive().optional(),
     includeHidden: z.boolean().optional().default(false),
-    contextLines: z.number().int().nonnegative().optional().default(5),
-    timeout_ms: z.number().int().positive().optional(),
-    earlyTermination: z.boolean().optional(),
     literalSearch: z.boolean().optional().default(false),
     origin: z.enum(["ui", "llm"]).optional(),
   }),

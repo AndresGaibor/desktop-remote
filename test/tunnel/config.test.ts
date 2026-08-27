@@ -61,7 +61,13 @@ mcp:
     const profile = createTunnelProfile({ tunnel_id: "tunnel_0123456789abcdef0123456789abcdef", mcp_command: "bun --version" });
     await writeFile(path, serializeTunnelProfile(profile, "yaml"));
 
-    const result = Bun.spawn(["tunnel-client", "doctor", "--config", path], {
+    const help = Bun.spawn(["tunnel-client", "doctor", "--help"], { stdout: "pipe", stderr: "pipe" });
+    const helpText = `${await new Response(help.stdout).text()}\n${await new Response(help.stderr).text()}`;
+    expect(await help.exited).toBe(0);
+    const profileFlag = helpText.includes("--profile-file") ? "--profile-file" : helpText.includes("--config") ? "--config" : undefined;
+    expect(profileFlag).toBeDefined();
+
+    const result = Bun.spawn(["tunnel-client", "doctor", profileFlag!, path], {
       stdout: "pipe",
       stderr: "pipe",
       env: { ...process.env, CONTROL_PLANE_API_KEY: "test-only-key" },
