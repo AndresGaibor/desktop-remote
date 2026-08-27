@@ -3,9 +3,9 @@ import { createToolDefinitions } from "../../src/mcp/tools";
 
 describe("MCP tool definitions", () => {
   test("maps operation metadata into MCP tool annotations", () => {
-    const definitions = createToolDefinitions();
+    const definitions = createToolDefinitions("darwin");
 
-    expect(definitions).toHaveLength(24);
+    expect(definitions).toHaveLength(37);
     expect(definitions.find((tool) => tool.name === "read_file")).toMatchObject({
       title: "Read file",
       description: expect.stringContaining("Use this when"),
@@ -22,10 +22,14 @@ describe("MCP tool definitions", () => {
     });
     expect(definitions.find((tool) => tool.name === "get_config")?.outputSchema).toBeDefined();
     expect(definitions.find((tool) => tool.name === "stop_search")?.outputSchema).toBeUndefined();
+    expect(definitions.find((tool) => tool.name === "set_clipboard")).toMatchObject({
+      title: "Set clipboard",
+      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+    });
   });
 
   test("structured-returning tools declare output schemas", () => {
-    const definitions = createToolDefinitions();
+    const definitions = createToolDefinitions("darwin");
     for (const tool of definitions) {
       if (tool.name === "stop_search") {
         expect(tool.outputSchema).toBeUndefined();

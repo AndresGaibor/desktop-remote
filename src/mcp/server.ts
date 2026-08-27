@@ -34,14 +34,14 @@ const SERVER_INSTRUCTIONS =
   "Use filesystem tools for local files, search tools for discovery, and process tools only when command execution is needed. " +
   "Do not claim a command or file change succeeded unless the tool result confirms it.";
 
-export function createMcpServer(executor: OperationExecutor, logger?: McpRequestLogger): McpServer {
+export function createMcpServer(executor: OperationExecutor, logger?: McpRequestLogger, platform?: string): McpServer {
   const server = new McpServer(
     MCP_SERVER_INFO,
     { instructions: SERVER_INSTRUCTIONS },
   );
   const handleOperation = createOperationHandler(executor, logger);
 
-  for (const tool of createToolDefinitions()) {
+  for (const tool of createToolDefinitions(platform)) {
     server.registerTool(tool.name, {
       title: tool.title,
       description: tool.description,

@@ -131,6 +131,20 @@ export const toolSchemas = {
     toolName: z.string().optional(),
     since: z.string().datetime().optional(),
   }),
+
+  get_active_window: z.object({}),
+  list_windows: z.object({ maxResults: z.number().int().positive().optional() }),
+  open_app: z.object({ bundleId: z.string().min(1) }),
+  focus_window: z.object({ bundleId: z.string().min(1) }),
+  screenshot: z.object({ path: z.string().min(1) }),
+  get_clipboard: z.object({}),
+  set_clipboard: z.object({ text: z.string() }),
+  type_text: z.object({ text: z.string() }),
+  key_press: z.object({ key: z.string().min(1) }),
+  click: z.object({ x: z.number().int(), y: z.number().int() }),
+  double_click: z.object({ x: z.number().int(), y: z.number().int() }),
+  scroll: z.object({ x: z.number().int(), y: z.number().int(), deltaX: z.number().int(), deltaY: z.number().int() }),
+  drag: z.object({ x1: z.number().int(), y1: z.number().int(), x2: z.number().int(), y2: z.number().int() }),
 } as const;
 
 export type OperationName = keyof typeof toolSchemas;

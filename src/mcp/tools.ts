@@ -48,10 +48,23 @@ const TOOL_COPY: Record<string, ToolCopy> = {  read_file: { title: "Read file", 
   set_config_value: { title: "Set configuration value", description: "Use this when the user wants to change one Desktop Remote configuration value.", destructiveHint: false },
   get_usage_stats: { title: "Get usage stats", description: "Use this when the user wants Desktop Remote usage statistics." },
   get_recent_tool_calls: { title: "Get recent tool calls", description: "Use this when the user wants recent Desktop Remote tool-call history." },
+  get_active_window: { title: "Get active window", description: "Use this when the user wants to know which application window is currently active.", destructiveHint: false },
+  list_windows: { title: "List windows", description: "Use this when the user wants to enumerate open windows.", destructiveHint: false },
+  open_app: { title: "Open application", description: "Use this when the user wants to launch an application by its bundle identifier.", destructiveHint: true },
+  focus_window: { title: "Focus window", description: "Use this when the user wants to bring an application's window to the foreground.", destructiveHint: false },
+  screenshot: { title: "Take screenshot", description: "Use this when the user wants to capture the screen or a region to a PNG file.", destructiveHint: false },
+  get_clipboard: { title: "Get clipboard", description: "Use this when the user wants to read the current clipboard text content.", destructiveHint: false },
+  set_clipboard: { title: "Set clipboard", description: "Use this when the user wants to write text content to the clipboard.", destructiveHint: true },
+  type_text: { title: "Type text", description: "Use this when the user wants to simulate keyboard text input.", destructiveHint: true },
+  key_press: { title: "Key press", description: "Use this when the user wants to simulate a single key press.", destructiveHint: true },
+  click: { title: "Click", description: "Use this when the user wants to simulate a mouse click at coordinates.", destructiveHint: true },
+  double_click: { title: "Double click", description: "Use this when the user wants to simulate a double mouse click at coordinates.", destructiveHint: true },
+  scroll: { title: "Scroll", description: "Use this when the user wants to simulate mouse scrolling at coordinates.", destructiveHint: true },
+  drag: { title: "Drag", description: "Use this when the user wants to simulate a mouse drag from one position to another.", destructiveHint: true },
 };
 
-export function createToolDefinitions(): readonly McpToolDefinition[] {
-  return listOperations().map((operation) => {
+export function createToolDefinitions(platform?: string): readonly McpToolDefinition[] {
+  return listOperations(platform).map((operation) => {
     const name = operation.name as keyof typeof toolSchemas;
     const schema = toolSchemas[name];
     const copy = TOOL_COPY[operation.name] ?? {
