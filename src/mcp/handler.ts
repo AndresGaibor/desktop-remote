@@ -53,7 +53,8 @@ export function createOperationHandler(
 
   const safeLog = (level: "info" | "warn" | "error", message: string, data?: unknown) => {
     try {
-      logger?.[level]?.(message, data);
+      const pending = logger?.[level]?.(message, data);
+      Promise.resolve(pending).catch(() => undefined);
     } catch {
       // La telemetría nunca debe convertirse en una dependencia de disponibilidad del MCP.
     }

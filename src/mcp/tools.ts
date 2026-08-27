@@ -1,6 +1,7 @@
 import { listOperations } from "../core/operations";
 import { outputSchemas } from "./output-schemas";
 import { toolSchemas } from "./schemas";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 
 export interface McpToolDefinition {
@@ -69,5 +70,31 @@ export function createToolDefinitions(): readonly McpToolDefinition[] {
         openWorldHint: copy.openWorldHint ?? false,
       },
     };
-  });
+  }).sort((left, right) => left.name.localeCompare(right.name));
+}
+
+/** Hash estable del contrato publicado; nunca incluye argumentos de llamadas. */
+export function computeMcpToolCatalogHash(tools: readonly McpToolDefinition[]): string {
+  const catalog = tools
+    .map((tool) => ({
+      name: tool.name,
+      title: tool.title,
+      description: tool.description,
+      annotations: tool.annotations,
+      inputSchema: z.toJSONSchema(tool.inputSchema),
+      outputSchema: tool.outputSchema ? z.toJSONSchema(tool.outputSchema) : undefined,
+    }))
+    .sort((left, right) => left.name.localeCompare(right.name));
+  return createHash("sha256").update(JSON.stringify(canonicalize(catalog))).digest("hex");
+}
+
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value === null || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([, entry]) => entry !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => [key, canonicalize(entry)]),
+  );
 }
