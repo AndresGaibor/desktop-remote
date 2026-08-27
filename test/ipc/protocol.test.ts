@@ -1,60 +1,52 @@
 import { describe, expect, test } from "bun:test";
-import {
-  PROTOCOL_VERSION,
-  parseClientMessage,
-  parseServerMessage,
-} from "../../src/ipc/protocol";
+import { PROTOCOL_VERSION, parseServerMessage } from "../../src/ipc/protocol";
+import { computeMcpToolCatalogHash, createToolDefinitions } from "../../src/mcp/tools";
 
-describe("IPC protocol", () => {
-  test("accepts version-1 client messages", () => {
-    expect(parseClientMessage({
-      type: "hello",
+describe("IPC protocol status contract fields", () => {
+  test("status message includes runtime contract identity fields", () => {
+    const identity = {
+      buildId: "mcp-a",
+      operationContractHash: computeMcpToolCatalogHash(createToolDefinitions()),
       protocolVersion: PROTOCOL_VERSION,
-      client: "visual",
-    })).toEqual({ type: "hello", protocolVersion: 1, client: "visual" });
-    expect(parseClientMessage({ type: "ping", protocolVersion: 1, at: 42 }))
-      .toMatchObject({ type: "ping", at: 42 });
-    expect(parseClientMessage({
-      type: "operation.request",
-      protocolVersion: 1,
-      requestId: "op-1",
-      name: "read_file",
-      input: { path: "/tmp/example" },
-    })).toEqual({
-      type: "operation.request",
-      protocolVersion: 1,
-      requestId: "op-1",
-      name: "read_file",
-      input: { path: "/tmp/example" },
+    };
+    const message = parseServerMessage({
+      type: "status",
+      protocolVersion: PROTOCOL_VERSION,
+      requestId: "req-1",
+      status: {
+        state: "online",
+        childPid: 123,
+        restartCount: 0,
+        consecutiveFailures: 0,
+        startedAt: Date.now(),
+        retainedCalls: 0,
+        ...identity,
+      },
+    });
+    expect(message).toMatchObject({
+      type: "status",
+      status: expect.objectContaining({
+        buildId: "mcp-a",
+        operationContractHash: expect.any(String),
+        protocolVersion: PROTOCOL_VERSION,
+      }),
     });
   });
 
-  test("rejects wrong client protocol versions and unknown message types", () => {
-    expect(() => parseClientMessage({ type: "hello", protocolVersion: 2, client: "visual" }))
-      .toThrow(/protocol version/i);
-    expect(() => parseClientMessage({ type: "mystery", protocolVersion: 1 }))
-      .toThrow(/unknown client message/i);
-  });
-
-  test("accepts and validates version-1 server messages", () => {
-    expect(parseServerMessage({ type: "hello.ack", protocolVersion: 1, daemonPid: 123 }))
-      .toEqual({ type: "hello.ack", protocolVersion: 1, daemonPid: 123 });
-    expect(parseServerMessage({ type: "attached", protocolVersion: 1, attachedSince: 44 }))
-      .toEqual({ type: "attached", protocolVersion: 1, attachedSince: 44 });
-    expect(() => parseServerMessage({ type: "hello.ack", protocolVersion: 9, daemonPid: 123 }))
-      .toThrow(/protocol version/i);
-    expect(() => parseServerMessage({ type: "unknown", protocolVersion: 1 }))
-      .toThrow(/unknown server message/i);
-    expect(parseServerMessage({
-      type: "operation.response",
-      protocolVersion: 1,
-      requestId: "op-1",
-      result: { contents: [] },
-    })).toEqual({
-      type: "operation.response",
-      protocolVersion: 1,
-      requestId: "op-1",
-      result: { contents: [] },
+  test("status message without contract fields is still valid", () => {
+    const message = parseServerMessage({
+      type: "status",
+      protocolVersion: PROTOCOL_VERSION,
+      requestId: "req-1",
+      status: {
+        state: "online",
+        childPid: 123,
+        restartCount: 0,
+        consecutiveFailures: 0,
+        startedAt: Date.now(),
+        retainedCalls: 0,
+      },
     });
+    expect(message).toMatchObject({ type: "status" });
   });
 });

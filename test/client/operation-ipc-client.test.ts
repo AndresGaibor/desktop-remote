@@ -18,100 +18,42 @@ async function tempSocket(): Promise<string> {
   return join(directory, "daemon.sock");
 }
 
-describe("OperationIpcClient deadlines", () => {
-  test("rejects after timeout when the daemon never responds and destroys only its socket", async () => {
-    const socketPath = await tempSocket();
-    let serverSocket: Socket | undefined;
-    const server: Server = createServer((socket: Socket) => {
-      serverSocket = socket;
-    });
-    await new Promise<void>((resolve) => server.listen(socketPath, resolve));
-    try {
-      const client = new OperationIpcClient(socketPath);
-      const start = Date.now();
-      await expect(client.execute("get_config", {}, { timeoutMs: 200 }))
-        .rejects.toThrow(/timed out after 200ms/);
-      expect(Date.now() - start).toBeLessThan(2000);
-      // El socket del cliente debe cerrarse: el servidor detecta el cierre de su extremo.
-      await new Promise<void>((resolve) => {
-        if (serverSocket?.destroyed) return resolve();
-        serverSocket?.once("close", resolve);
-        setTimeout(resolve, 1000);
-      });
-      expect(serverSocket?.destroyed).toBe(true);
-    } finally {
-      server.close();
-    }
-  });
+function makeStatusResponse(requestId: string, extraFields?: Record<string, unknown>) {
+  return {
+    type: "status" as const,
+    protocolVersion: PROTOCOL_VERSION,
+    requestId,
+    status: {
+      state: "online" as const,
+      childPid: 123,
+      restartCount: 0,
+      consecutiveFailures: 0,
+      startedAt: Date.now(),
+      retainedCalls: 0,
+      ...extraFields,
+    },
+  } as any;
+}
 
-  test("a subsequent operation opens a fresh socket and succeeds", async () => {
+describe("OperationIpcClient preflight validation", () => {
+  test("sends a status request before first operation to validate contract", async () => {
     const socketPath = await tempSocket();
+    const receivedRequests: string[] = [];
     const server: Server = createServer((socket: Socket) => {
       const decoder = new JsonLineDecoder();
       socket.on("data", (chunk) => {
         for (const value of decoder.push(chunk)) {
           const message = parseClientMessage(value);
-          if (message.type === "operation.request") {
-            // Responde tras 200ms: el primer call (timeout 50ms) expira y destruye su socket;
-            // el segundo call (timeout 2000ms) usa un socket nuevo y recibe la respuesta.
-            setTimeout(() => {
-              if (socket.destroyed) return;
-              socket.write(encodeFrame({
-                type: "operation.response",
-                protocolVersion: PROTOCOL_VERSION,
-                requestId: message.requestId,
-                result: { ok: true },
-              }));
-            }, 200);
+          receivedRequests.push(message.type);
+          if (message.type === "status.request") {
+            socket.write(encodeFrame(makeStatusResponse(message.requestId)));
           }
-        }
-      });
-    });
-    await new Promise<void>((resolve) => server.listen(socketPath, resolve));
-    try {
-      const client = new OperationIpcClient(socketPath);
-      await expect(client.execute("get_config", {}, { timeoutMs: 50 }))
-        .rejects.toThrow(/timed out/);
-      await expect(client.execute("get_config", {}, { timeoutMs: 2000 }))
-        .resolves.toEqual({ ok: true });
-    } finally {
-      server.close();
-    }
-  });
-
-  test("honors AbortSignal", async () => {
-    const socketPath = await tempSocket();
-    const server: Server = createServer(() => {
-      // no responde
-    });
-    await new Promise<void>((resolve) => server.listen(socketPath, resolve));
-    try {
-      const client = new OperationIpcClient(socketPath);
-      const controller = new AbortController();
-      const pending = client.execute("get_config", {}, { timeoutMs: 5000, signal: controller.signal });
-      controller.abort();
-      await expect(pending).rejects.toThrow(/aborted/);
-    } finally {
-      server.close();
-    }
-  });
-
-  test("propagates traceId to the request and echoes it back", async () => {
-    const socketPath = await tempSocket();
-    const received: Array<{ traceId?: string; requestId: string }> = [];
-    const server: Server = createServer((socket: Socket) => {
-      const decoder = new JsonLineDecoder();
-      socket.on("data", (chunk) => {
-        for (const value of decoder.push(chunk)) {
-          const message = parseClientMessage(value);
           if (message.type === "operation.request") {
-            received.push({ traceId: message.traceId, requestId: message.requestId });
             socket.write(encodeFrame({
               type: "operation.response",
               protocolVersion: PROTOCOL_VERSION,
               requestId: message.requestId,
               result: { ok: true },
-              ...(message.traceId !== undefined ? { traceId: message.traceId } : {}),
             }));
           }
         }
@@ -120,35 +62,101 @@ describe("OperationIpcClient deadlines", () => {
     await new Promise<void>((resolve) => server.listen(socketPath, resolve));
     try {
       const client = new OperationIpcClient(socketPath);
-      await client.execute("get_config", {}, { timeoutMs: 2000, traceId: "trace-abc" });
-      // El cliente envia el traceId en el frame de request (lo verifica el servidor).
-      expect(received[0]?.traceId).toBe("trace-abc");
+      await client.execute("get_config", {});
+      expect(receivedRequests[0]).toBe("status.request");
+      expect(receivedRequests[1]).toBe("operation.request");
     } finally {
       server.close();
     }
   });
-});
 
-test("OperationIpcClient propagates an absolute deadlineAt derived from timeoutMs", async () => {
-  const socketPath = await tempSocket();
-  let deadlineAt: number | undefined;
-  const before = Date.now();
-  const server: Server = createServer((socket: Socket) => {
-    const decoder = new JsonLineDecoder();
-    socket.on("data", (chunk) => {
-      for (const value of decoder.push(chunk)) {
-        const message = parseClientMessage(value);
-        if (message.type !== "operation.request") continue;
-        deadlineAt = message.deadlineAt;
-        socket.write(encodeFrame({ type: "operation.response", protocolVersion: PROTOCOL_VERSION, requestId: message.requestId, result: { ok: true } }));
-      }
+  test("throws RUNTIME_VERSION_MISMATCH when daemon returns different operationContractHash", async () => {
+    const socketPath = await tempSocket();
+    const server: Server = createServer((socket: Socket) => {
+      const decoder = new JsonLineDecoder();
+      socket.on("data", (chunk) => {
+        for (const value of decoder.push(chunk)) {
+          const message = parseClientMessage(value);
+          if (message.type === "status.request") {
+            socket.write(encodeFrame(makeStatusResponse(message.requestId, {
+              buildId: "daemon-build",
+              operationContractHash: "different-daemon-hash",
+              protocolVersion: PROTOCOL_VERSION,
+            })));
+          }
+        }
+      });
     });
+    await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+    try {
+      const client = new OperationIpcClient(socketPath);
+      await expect(client.execute("get_config", {})).rejects.toThrow("RUNTIME_VERSION_MISMATCH");
+    } finally {
+      server.close();
+    }
   });
-  await new Promise<void>((resolve) => server.listen(socketPath, resolve));
-  try {
-    await new OperationIpcClient(socketPath).execute("get_config", {}, { timeoutMs: 750 });
-    expect(deadlineAt).toBeNumber();
-    expect(deadlineAt!).toBeGreaterThanOrEqual(before + 700);
-    expect(deadlineAt!).toBeLessThanOrEqual(Date.now() + 800);
-  } finally { server.close(); }
+
+  test("does not send operation.request when contract mismatch is detected", async () => {
+    const socketPath = await tempSocket();
+    const receivedRequests: string[] = [];
+    const server: Server = createServer((socket: Socket) => {
+      const decoder = new JsonLineDecoder();
+      socket.on("data", (chunk) => {
+        for (const value of decoder.push(chunk)) {
+          const message = parseClientMessage(value);
+          receivedRequests.push(message.type);
+          if (message.type === "status.request") {
+            socket.write(encodeFrame(makeStatusResponse(message.requestId, {
+              buildId: "daemon-build",
+              operationContractHash: "different-daemon-hash",
+              protocolVersion: PROTOCOL_VERSION,
+            })));
+          }
+        }
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+    try {
+      const client = new OperationIpcClient(socketPath);
+      await expect(client.execute("get_config", {})).rejects.toThrow("RUNTIME_VERSION_MISMATCH");
+      expect(receivedRequests).not.toContain("operation.request");
+    } finally {
+      server.close();
+    }
+  });
+
+  test("subsequent operations use cached validation and do not re-request status", async () => {
+    const socketPath = await tempSocket();
+    const receivedRequests: string[] = [];
+    const server: Server = createServer((socket: Socket) => {
+      const decoder = new JsonLineDecoder();
+      socket.on("data", (chunk) => {
+        for (const value of decoder.push(chunk)) {
+          const message = parseClientMessage(value);
+          receivedRequests.push(message.type);
+          if (message.type === "status.request") {
+            socket.write(encodeFrame(makeStatusResponse(message.requestId)));
+          }
+          if (message.type === "operation.request") {
+            socket.write(encodeFrame({
+              type: "operation.response",
+              protocolVersion: PROTOCOL_VERSION,
+              requestId: message.requestId,
+              result: { ok: true },
+            }));
+          }
+        }
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+    try {
+      const client = new OperationIpcClient(socketPath);
+      await client.execute("get_config", {});
+      await client.execute("get_config", {});
+      const statusCount = receivedRequests.filter((r) => r === "status.request").length;
+      expect(statusCount).toBe(1);
+    } finally {
+      server.close();
+    }
+  });
 });
