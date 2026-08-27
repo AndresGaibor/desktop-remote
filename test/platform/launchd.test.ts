@@ -35,7 +35,7 @@ describe("LaunchdManager", () => {
     expect(calls).toContainEqual(["launchctl", "bootout", "gui/501/com.desktop-remote.daemon"]);
   });
 
-  test("treats a generic bootstrap error as already loaded when launchctl print confirms the service", async () => {
+  test("treats a generic bootstrap error as fatal", async () => {
     const dir = await mkdtemp(join(tmpdir(), "dr-launchd-loaded-"));
     const paths = makeTestPaths(dir);
     const calls: string[][] = [];
@@ -47,9 +47,52 @@ describe("LaunchdManager", () => {
     };
     const manager = new LaunchdManager({ paths, run, uid: 501, daemonCommand: "/opt/dr/desktop-remote" });
 
-    await manager.start();
+    await expect(manager.start()).rejects.toThrow("launchctl bootstrap failed");
 
-    expect(calls).toContainEqual(["launchctl", "print", "gui/501/com.desktop-remote.daemon"]);
-    expect(calls).toContainEqual(["launchctl", "kickstart", "-k", "gui/501/com.desktop-remote.daemon"]);
+    expect(calls).not.toContainEqual(["launchctl", "print", "gui/501/com.desktop-remote.daemon"]);
+    expect(calls).not.toContainEqual(["launchctl", "kickstart", "-k", "gui/501/com.desktop-remote.daemon"]);
+  });
+
+  test("reloads the LaunchAgent when its ProgramArguments change", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "dr-launchd-reload-"));
+    const paths = makeTestPaths(dir);
+    const calls: Array<{ args: string[] }> = [];
+    let activeDefinition: { command: string; args: string[] } | undefined;
+    const run = async (_command: string, args: string[]) => {
+      calls.push({ args });
+      if (args[0] === "bootout") {
+        activeDefinition = undefined;
+      }
+      if (args[0] === "bootstrap") {
+        const plist = await readFile(args[2]!, "utf8");
+        const programArgumentsXml = plist.split("<key>ProgramArguments</key><array>")[1]?.split("</array>")[0] ?? "";
+        const programArguments = [...programArgumentsXml.matchAll(/<string>([^<]*)<\/string>/g)].map((match) => match[1]!);
+        activeDefinition = { command: programArguments[0]!, args: programArguments.slice(1) };
+      }
+      return { exitCode: 0, stdout: "", stderr: "" };
+    };
+
+    const splitManager = new LaunchdManager({
+      paths,
+      run,
+      uid: 501,
+      daemonCommand: "desktop-remote-daemon",
+      daemonArgs: [],
+    });
+    await splitManager.install();
+    await splitManager.start();
+
+    const singleManager = new LaunchdManager({ paths, run, uid: 501, daemonCommand: "desktop-remote", daemonArgs: ["daemon"] });
+    await singleManager.install();
+    calls.length = 0;
+    await singleManager.start();
+
+    expect(calls.map(({ args }) => args.slice(0, 2))).toEqual([
+      ["bootout", "gui/501/com.desktop-remote.daemon"],
+      ["bootstrap", "gui/501"],
+      ["enable", "gui/501/com.desktop-remote.daemon"],
+      ["kickstart", "-k"],
+    ]);
+    expect(activeDefinition).toEqual({ command: "desktop-remote", args: ["daemon"] });
   });
 });

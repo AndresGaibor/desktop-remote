@@ -25,13 +25,12 @@ export class LaunchdManager {
 
   async start(): Promise<void> {
     const domain = this.domain();
-    requireSuccess(await this.options.run("launchctl", ["enable", `${domain}/${LAUNCHD_LABEL}`]), "launchctl enable");
-    const bootstrap = await this.options.run("launchctl", ["bootstrap", domain, this.requirePath()]);
-    if (bootstrap.exitCode !== 0 && !/already|service already loaded/i.test(`${bootstrap.stdout}\n${bootstrap.stderr}`)) {
-      const loaded = await this.options.run("launchctl", ["print", `${domain}/${LAUNCHD_LABEL}`]);
-      if (loaded.exitCode !== 0) requireSuccess(bootstrap, "launchctl bootstrap");
-    }
-    requireSuccess(await this.options.run("launchctl", ["kickstart", "-k", `${domain}/${LAUNCHD_LABEL}`]), "launchctl kickstart");
+    const service = `${domain}/${LAUNCHD_LABEL}`;
+    const bootout = await this.options.run("launchctl", ["bootout", service]);
+    if (bootout.exitCode !== 0 && !isMissingService(bootout.stdout, bootout.stderr)) requireSuccess(bootout, "launchctl bootout");
+    requireSuccess(await this.options.run("launchctl", ["bootstrap", domain, this.requirePath()]), "launchctl bootstrap");
+    requireSuccess(await this.options.run("launchctl", ["enable", service]), "launchctl enable");
+    requireSuccess(await this.options.run("launchctl", ["kickstart", "-k", service]), "launchctl kickstart");
   }
 
   async restart(): Promise<void> {
@@ -50,7 +49,7 @@ export class LaunchdManager {
     const service = `${this.domain()}/${LAUNCHD_LABEL}`;
     requireSuccess(await this.options.run("launchctl", ["disable", service]), "launchctl disable");
     const result = await this.options.run("launchctl", ["bootout", service]);
-    if (result.exitCode !== 0 && !/not found|could not find|no such process/i.test(`${result.stdout}\n${result.stderr}`)) requireSuccess(result, "launchctl bootout");
+    if (result.exitCode !== 0 && !isMissingService(result.stdout, result.stderr)) requireSuccess(result, "launchctl bootout");
   }
 
   private domain(): string { return `gui/${this.options.uid}`; }
@@ -58,6 +57,10 @@ export class LaunchdManager {
     if (!this.options.paths.launchAgentPath) throw new Error("LaunchAgent path is unavailable on this platform");
     return this.options.paths.launchAgentPath;
   }
+}
+
+function isMissingService(stdout: string, stderr: string): boolean {
+  return /not found|could not find|no such process|not loaded/i.test(`${stdout}\n${stderr}`);
 }
 
 export function launchAgentPlist(command: string, args: string[] = ["daemon"]): string {
