@@ -62,6 +62,7 @@ describe("traceId a traves del IPC daemon", () => {
   test("el DaemonIpcServer recibe y ecoa el traceId de la operacion", async () => {
     const paths = await tempPaths();
     const received: Array<string | undefined> = [];
+    const receivedCallIds: Array<string | undefined> = [];
     const source: IpcDaemonSource = {
       snapshot: () => ({ connection: "online", rows: [], counts: { total: 0, running: 0, completed: 0, failed: 0 } }),
       status: () => ({ state: "online", restartCount: 0, consecutiveFailures: 0, startedAt: Date.now(), retainedCalls: 0 }),
@@ -69,6 +70,7 @@ describe("traceId a traves del IPC daemon", () => {
       stop: async () => {},
       execute: async (_name, _input, options) => {
         received.push(options?.traceId);
+        receivedCallIds.push(options?.callId);
         return { ok: true };
       },
     };
@@ -76,9 +78,10 @@ describe("traceId a traves del IPC daemon", () => {
     await server.start();
     try {
       const response = await sendRawOperation(paths.socketPath, "get_config", {}, "trace-xyz");
-      // El traceId llega al handler de operacion del daemon...
+      // El traceId y requestId llegan al handler de operacion del daemon...
       expect(received).toContain("trace-xyz");
-      // ...y el daemon lo ecoa en el frame de respuesta.
+      expect(receivedCallIds).toContain("raw-1");
+      // ...y el daemon ecoa el traceId en el frame de respuesta.
       expect(response.type).toBe("operation.response");
       if (response.type === "operation.response") {
         expect(response.traceId).toBe("trace-xyz");

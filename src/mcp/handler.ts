@@ -10,6 +10,8 @@ export interface OperationExecutionOptions {
   traceId?: string;
   deadlineAt?: number;
   signal?: AbortSignal;
+  /** Stable request identifier used to correlate global activity events. */
+  callId?: string;
 }
 
 export interface OperationExecutor {

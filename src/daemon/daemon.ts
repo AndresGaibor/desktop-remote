@@ -114,9 +114,42 @@ export class DesktopRemoteDaemon {
       protocolVersion: identity.protocolVersion,
     };
   }
-  execute(name: string, input: Record<string, unknown>, options?: OperationExecutionOptions): Promise<unknown> {
-    if (!this.operationExecutor) return Promise.reject(new Error("Daemon operation executor is unavailable"));
-    return this.operationExecutor.execute(name, input, options);
+  async execute(name: string, input: Record<string, unknown>, options?: OperationExecutionOptions): Promise<unknown> {
+    if (!this.operationExecutor) throw new Error("Daemon operation executor is unavailable");
+
+    const callId = options?.callId ?? `mcp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const startedAt = Date.now();
+    this.consume({
+      type: "tool.started",
+      callId,
+      toolName: name,
+      args: input,
+      metadata: { source: "mcp" },
+      startedAt,
+    });
+
+    try {
+      const result = await this.operationExecutor.execute(name, input, options);
+      this.consume({
+        type: "tool.completed",
+        callId,
+        toolName: name,
+        resultText: serializeActivityResult(result),
+        completedAt: Date.now(),
+        durationMs: Date.now() - startedAt,
+      });
+      return result;
+    } catch (error) {
+      this.consume({
+        type: "tool.failed",
+        callId,
+        toolName: name,
+        error: error instanceof Error ? error.message : String(error),
+        completedAt: Date.now(),
+        durationMs: Date.now() - startedAt,
+      });
+      throw error;
+    }
   }
   onEvent(listener: (event: RuntimeEvent) => void): () => void {
     this.listeners.add(listener);
@@ -208,4 +241,13 @@ export class DesktopRemoteDaemon {
 
 function errorData(error: unknown): { message: string } {
   return { message: error instanceof Error ? error.message : String(error) };
+}
+
+function serializeActivityResult(value: unknown): string {
+  try {
+    const serialized = JSON.stringify(value);
+    return serialized === undefined ? String(value) : serialized;
+  } catch {
+    return String(value);
+  }
 }

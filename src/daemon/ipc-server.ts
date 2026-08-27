@@ -201,6 +201,7 @@ export class DaemonIpcServer {
 
     const executePromise = Promise.resolve().then(() => this.source.execute(message.name, message.input, {
       signal: controller.signal,
+      callId: message.requestId,
       ...(message.traceId !== undefined ? { traceId: message.traceId } : {}),
       ...(message.deadlineAt !== undefined ? { deadlineAt: message.deadlineAt } : {}),
     }));

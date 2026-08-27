@@ -139,6 +139,48 @@ describe("DesktopRemoteDaemon", () => {
     expect(daemon.status()).toMatchObject({ state: "starting", retainedCalls: 1 });
   });
 
+  test("records MCP operations as global activity and forwards them live", async () => {
+    const supervisor = new FakeSupervisor();
+    const forwarded: RuntimeEvent[] = [];
+    const daemon = new DesktopRemoteDaemon({
+      supervisor,
+      operationExecutor: { execute: async () => ({ ok: true }) },
+    });
+    daemon.onEvent((event) => forwarded.push(event));
+    daemon.start();
+
+    const result = await daemon.execute("read_file", { path: "/tmp/example" }, { callId: "request-1" });
+
+    expect(result).toEqual({ ok: true });
+    expect(forwarded.map((event) => event.type)).toEqual(["tool.started", "tool.completed"]);
+    expect(daemon.snapshot().rows).toMatchObject([{
+      callId: "request-1",
+      toolName: "read_file",
+      status: "completed",
+      resultText: '{"ok":true}',
+    }]);
+  });
+
+  test("records failed MCP operations as global activity", async () => {
+    const supervisor = new FakeSupervisor();
+    const forwarded: RuntimeEvent[] = [];
+    const daemon = new DesktopRemoteDaemon({
+      supervisor,
+      operationExecutor: { execute: async () => { throw new Error("boom"); } },
+    });
+    daemon.onEvent((event) => forwarded.push(event));
+    daemon.start();
+
+    await expect(daemon.execute("read_file", {}, { callId: "request-2" })).rejects.toThrow("boom");
+
+    expect(forwarded.map((event) => event.type)).toEqual(["tool.started", "tool.failed"]);
+    expect(daemon.snapshot().rows).toMatchObject([{
+      callId: "request-2",
+      status: "failed",
+      error: "boom",
+    }]);
+  });
+
   test("logs lifecycle and operational events without logging tool calls, heartbeats, or raw lines", async () => {
     const supervisor = new FakeSupervisor();
     const logger = new FakeLogger();
