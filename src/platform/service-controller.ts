@@ -28,7 +28,10 @@ export interface ServiceControllerOptions {
   onBeforeManagerStop?: () => Promise<void>;
   onBeforeManagerRestart?: () => Promise<void>;
   prepareInstall?: () => Promise<void>;
+  healthCheck?: () => Promise<void>;
 }
+
+export type RuntimeMutation = () => Promise<void>;
 
 export class ServiceController {
   private readonly requestStatus?: () => Promise<DaemonStatus>;
@@ -66,7 +69,31 @@ export class ServiceController {
     if (desired === "stopped") throw new Error("Desktop Remote is intentionally stopped. Run: desktop-remote start");
     await this.options.onBeforeManagerRestart?.();
     await this.options.manager.restart();
-    return this.waitForHealthy();
+    const status = await this.waitForHealthy();
+    await this.options.healthCheck?.();
+    return status;
+  }
+
+  async updateLocal(promote: RuntimeMutation, rollback: RuntimeMutation): Promise<DaemonStatus> {
+    await this.assertRunning();
+    await promote();
+    try {
+      return await this.restartAndHealthCheck();
+    } catch (error) {
+      try {
+        await rollback();
+        await this.restartAndHealthCheck();
+      } catch (rollbackError) {
+        throw new Error(`Local update failed and rollback could not be verified: ${errorMessage(rollbackError)}`, { cause: error });
+      }
+      throw new Error(`Local update failed health gate and was rolled back: ${errorMessage(error)}`, { cause: error });
+    }
+  }
+
+  async rollback(restore: RuntimeMutation): Promise<DaemonStatus> {
+    await this.assertRunning();
+    await restore();
+    return this.restartAndHealthCheck();
   }
 
   async ensureRunning(): Promise<DaemonStatus> {
@@ -99,4 +126,17 @@ export class ServiceController {
     const detail = lastError instanceof Error ? lastError.message : String(lastError ?? "unavailable");
     throw new Error(`Desktop Remote daemon did not become healthy: ${detail}`);
   }
+
+  private async restartAndHealthCheck(): Promise<DaemonStatus> {
+    return this.restart();
+  }
+
+  private async assertRunning(): Promise<void> {
+    const desired = await readDesiredState(this.options.paths.desiredStatePath);
+    if (desired === "stopped") throw new Error("Desktop Remote is intentionally stopped. Run: desktop-remote start");
+  }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

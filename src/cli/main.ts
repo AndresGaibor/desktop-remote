@@ -25,13 +25,14 @@ export interface CliDependencies {
   tunnelDoctor(): Promise<void>;
   tunnelStatus(): Promise<void>;
   doctor(format: "json" | "text"): Promise<void>;
-  update(): Promise<void>;
+  update?(): Promise<void>;
+  updateLocal?(): Promise<void>;
   rollback(): Promise<void>;
   writeOut(text: string): void;
   writeErr(text: string): void;
 }
 
-const ADMIN = new Set(["install", "start", "stop", "restart", "status", "logs", "attach", "replay", "daemon", "mcp", "tunnel", "doctor", "update", "rollback"]);
+const ADMIN = new Set(["install", "start", "stop", "restart", "status", "logs", "attach", "replay", "daemon", "mcp", "tunnel", "doctor", "update", "update-local", "rollback"]);
 
 export async function runCli(argv: string[], deps: CliDependencies): Promise<number> {
   const command = argv[0];
@@ -81,8 +82,11 @@ export async function runCli(argv: string[], deps: CliDependencies): Promise<num
         await deps.doctor(argv.includes("--json") ? "json" : "text");
         return 0;
       }
-      case "update": {
-        await deps.update();
+      case "update":
+      case "update-local": {
+        const update = command === "update-local" ? deps.updateLocal ?? deps.update : deps.update ?? deps.updateLocal;
+        if (!update) throw new Error("update-local is unavailable");
+        await update();
         return 0;
       }
       case "rollback": {
@@ -113,8 +117,9 @@ Commands:
   tunnel doctor                           Validate the local tunnel profile
   tunnel status                           Probe local tunnel liveness and readiness
   doctor [--json]                         Run health diagnostics (--json for machine-readable output)
-  update     Build and promote new binary (with backup)
-  rollback   Restore previous binary from backup
+  update     Build and promote new binary transactionally (legacy alias)
+  update-local Build/test checkout and promote it transactionally
+  rollback   Restore previous runtime transactionally
 `;
 
 function requireOption(args: string[], name: string): string {

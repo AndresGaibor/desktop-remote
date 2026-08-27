@@ -78,4 +78,10 @@ describe("runCli", () => {
     expect(await runCli(["tunnel", "init", "--tunnel-id", "t", "--profile", "sk-live-secret-value"], d)).toBe(1);
     expect(output.join("\n")).toMatch(/literal API key/i);
   });
+
+  test("expone update-local como alias transaccional del update dependency", async () => {
+    const { d, calls } = deps();
+    expect(await runCli(["update-local"], d)).toBe(0);
+    expect(calls).toEqual(["update"]);
+  });
 });
