@@ -151,8 +151,15 @@ function buildReport(deps: DoctorDependencies): DoctorReport {
   const selected = diagnostics?.selected ?? { liveness: tunnelHealthy, readiness: tunnelHealthy };
   const controlPlane = describeControlPlane(selected);
 
-  const contract = (deps.mcpHash !== undefined && deps.daemonHash !== undefined)
-    ? { mcpHash: deps.mcpHash, daemonHash: deps.daemonHash, matches: deps.mcpHash === deps.daemonHash }
+  const hashesMatch = deps.mcpHash !== undefined && deps.daemonHash !== undefined &&
+    deps.mcpHash === deps.daemonHash;
+  const layoutMismatch = deps.expectedLayout !== undefined && deps.buildMetadata !== undefined &&
+    (deps.expectedLayout.layout !== undefined && deps.expectedLayout.layout !== deps.buildMetadata.layout ||
+     deps.expectedLayout.daemonArgs !== undefined && deps.buildMetadata.daemonArgs !== undefined &&
+       JSON.stringify(deps.expectedLayout.daemonArgs) !== JSON.stringify(deps.buildMetadata.daemonArgs));
+  const contractMatches = hashesMatch && !layoutMismatch;
+  const contract = (deps.mcpHash !== undefined && deps.daemonHash !== undefined) || deps.expectedLayout !== undefined
+    ? { mcpHash: deps.mcpHash ?? "", daemonHash: deps.daemonHash ?? "", matches: contractMatches }
     : undefined;
 
   const localHealthy = daemonAlive &&

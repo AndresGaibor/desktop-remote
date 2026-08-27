@@ -39,15 +39,15 @@ describe("contract health", () => {
   test("stale loaded split command is unhealthy", async () => {
     const report = await runDoctor("json", {
       ...baseDeps(),
-      buildMetadata: { layout: "split", cli: "desktop-remote-cli", daemon: "desktop-remote-daemon", daemonArgs: ["daemon"], version: "1.0.0" },
+      buildMetadata: { layout: "single", cli: "desktop-remote", daemon: "desktop-remote", daemonArgs: ["daemon"], version: "1.0.0" },
       serviceStatus: { loaded: true, enabled: true, active: true, pid: 12345 },
       expectedLayout: { layout: "split", daemonArgs: ["daemon"] },
       mcpHash: "same",
       daemonHash: "same",
     });
 
-    expect(report.contract).toEqual({ mcpHash: "same", daemonHash: "same", matches: true });
-    expect(report.healthy).toBe(true);
+    expect(report.contract).toEqual({ mcpHash: "same", daemonHash: "same", matches: false });
+    expect(report.healthy).toBe(false);
   });
 
   test("MCP/daemon hash mismatch is unhealthy", async () => {
@@ -87,6 +87,34 @@ describe("historical warnings vs active health", () => {
     expect(report.healthy).toBe(true);
     expect(report.historicalWarnings).toEqual(["connection refused", "timeout error"]);
     expect(report.logs.recentErrors).toEqual([]);
+  });
+});
+
+describe("controlPlane stale vs local health", () => {
+  test("controlPlane.stale=true with healthy locals yields healthy=false", async () => {
+    const report = await runDoctor("json", {
+      ...baseDeps(),
+      tunnelDiagnostics: {
+        baseUrl: "http://127.0.0.1:4321",
+        state: "ready",
+        healthz: { ok: true, status: 200, body: "live" },
+        readyz: { ok: true, status: 200, body: "ready" },
+        api: { status: { available: true, status: 200 }, system: { available: true, status: 200 } },
+        metrics: { available: true, status: 200 },
+        selected: {
+          liveness: true,
+          readiness: true,
+          controlPlane: { reachable: false, stale: true },
+          polling: { lastSuccessAt: "2026-08-27T11:00:00.000Z", ageMs: 3_600_000, stale: true },
+        },
+      },
+      mcpHash: "same",
+      daemonHash: "same",
+    });
+
+    expect(report.local.healthy).toBe(true);
+    expect(report.controlPlane.stale).toBe(true);
+    expect(report.healthy).toBe(false);
   });
 });
 
