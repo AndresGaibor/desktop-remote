@@ -88,4 +88,10 @@ describe("runCli", () => {
     expect(await runCli(["repair"], d)).toBe(0);
     expect(calls).toEqual(["support-bundle:/tmp/diagnostics", "repair"]);
   });
+
+  test("expone update-local como alias transaccional del update dependency", async () => {
+    const { d, calls } = deps();
+    expect(await runCli(["update-local"], d)).toBe(0);
+    expect(calls).toEqual(["update"]);
+  });
 });

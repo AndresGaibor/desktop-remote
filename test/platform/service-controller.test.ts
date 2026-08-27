@@ -86,4 +86,67 @@ describe("ServiceController", () => {
     await expect(controller.ensureRunning()).rejects.toThrow(/intentionally stopped/i);
     expect(manager.calls).toEqual(["stop"]);
   });
+
+  test("rollback restaura el runtime, recarga companion antes del daemon y verifica health", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "dr-service-rollback-"));
+    const paths = makeTestPaths(dir);
+    const calls: string[] = [];
+    const controller = new ServiceController({
+      paths,
+      manager: {
+        install: async () => {},
+        start: async () => {},
+        stop: async () => {},
+        restart: async () => { calls.push("daemon.restart"); },
+      },
+      requestStatus: async () => ({ state: "online", restartCount: 0, consecutiveFailures: 0, startedAt: 1, retainedCalls: 0 }),
+      onBeforeManagerRestart: async () => { calls.push("companion.restart"); },
+      healthCheck: async () => { calls.push("health"); },
+      sleep: async () => {},
+    });
+
+    await controller.rollback(async () => { calls.push("runtime.rollback"); });
+
+    expect(calls).toEqual(["runtime.rollback", "companion.restart", "daemon.restart", "health"]);
+  });
+
+  test("updateLocal revierte automáticamente y reinicia cuando falla el health gate", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "dr-service-update-"));
+    const paths = makeTestPaths(dir);
+    const calls: string[] = [];
+    let healthChecks = 0;
+    const controller = new ServiceController({
+      paths,
+      manager: {
+        install: async () => {},
+        start: async () => {},
+        stop: async () => {},
+        restart: async () => { calls.push("daemon.restart"); },
+      },
+      requestStatus: async () => ({ state: "online", restartCount: 0, consecutiveFailures: 0, startedAt: 1, retainedCalls: 0 }),
+      onBeforeManagerRestart: async () => { calls.push("companion.restart"); },
+      healthCheck: async () => {
+        healthChecks += 1;
+        calls.push(`health:${healthChecks}`);
+        if (healthChecks === 1) throw new Error("candidate unhealthy");
+      },
+      sleep: async () => {},
+    });
+
+    await expect(controller.updateLocal(
+      async () => { calls.push("runtime.update"); },
+      async () => { calls.push("runtime.rollback"); },
+    )).rejects.toThrow(/rolled back/i);
+
+    expect(calls).toEqual([
+      "runtime.update",
+      "companion.restart",
+      "daemon.restart",
+      "health:1",
+      "runtime.rollback",
+      "companion.restart",
+      "daemon.restart",
+      "health:2",
+    ]);
+  });
 });

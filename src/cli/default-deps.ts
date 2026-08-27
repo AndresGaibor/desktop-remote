@@ -11,7 +11,7 @@ import { readJsonlEvents } from "../logging/jsonl";
 import { RotatingDaemonLog } from "../logging/rotating-log";
 import { readDesiredState } from "../platform/desired-state";
 import { DynamicUserServiceManager } from "../platform/dynamic-service-manager";
-import { installProductionArtifacts } from "../platform/install";
+import { installProductionArtifacts, rollbackInstalledBuild, updateLocalArtifacts } from "../platform/install";
 import { getDesktopRemotePaths, type Platform } from "../platform/paths";
 import { doctorTunnel, initializeTunnel, restartTunnelServiceIfConfigured } from "../platform/tunnel-install";
 import { probeTunnelDiagnostics, probeTunnelHealth } from "../platform/tunnel-health";
@@ -51,6 +51,12 @@ export function createDefaultCliDependencies(): CliDependencies {
     paths,
     manager,
     requestStatus,
+    healthCheck: async () => {
+      const status = await requestStatus();
+      if (["stopped", "recovering", "degraded"].includes(status.state)) {
+        throw new Error(`Desktop Remote health gate rejected daemon state: ${status.state}`);
+      }
+    },
     prepareInstall: async () => {
       await installProductionArtifacts(paths);
       await restartTunnel();
@@ -124,16 +130,22 @@ export function createDefaultCliDependencies(): CliDependencies {
       return result.message;
     },
     update: async () => {
-      const { buildAndPromoteWithBackup } = await import("../platform/install");
-      await buildAndPromoteWithBackup(paths);
-      await restartTunnelServiceIfConfigured(paths, { platform, run: runCommand });
-      process.stdout.write("Binary updated successfully. Previous version backed up to .bak; tunnel MCP reloaded when configured\n");
+      await service.updateLocal(
+        async () => { await updateLocalArtifacts(paths); },
+        async () => { await rollbackInstalledBuild(paths); },
+      );
+      process.stdout.write("Local checkout updated successfully; previous runtime retained and tunnel MCP reloaded before daemon health verification\n");
+    },
+    updateLocal: async () => {
+      await service.updateLocal(
+        async () => { await updateLocalArtifacts(paths); },
+        async () => { await rollbackInstalledBuild(paths); },
+      );
+      process.stdout.write("Local checkout updated successfully; previous runtime retained and tunnel MCP reloaded before daemon health verification\n");
     },
     rollback: async () => {
-      const { rollbackBinary } = await import("../platform/install");
-      await rollbackBinary(paths.binDir, "desktop-remote");
-      await restartTunnel();
-      process.stdout.write("Binary rolled back successfully; tunnel MCP reloaded when configured\n");
+      await service.rollback(async () => { await rollbackInstalledBuild(paths); });
+      process.stdout.write("Runtime rolled back successfully; tunnel MCP reloaded before daemon health verification\n");
     },
     writeOut: (text) => process.stdout.write(`${text}\n`),
     writeErr: (text) => process.stderr.write(`desktop-remote: ${text}\n`),

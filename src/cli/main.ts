@@ -27,13 +27,14 @@ export interface CliDependencies {
   doctor(format: "json" | "text"): Promise<void>;
   supportBundle?: (outputPath?: string) => Promise<string | void>;
   repair?: () => Promise<string | void>;
-  update(): Promise<void>;
+  update?(): Promise<void>;
+  updateLocal?(): Promise<void>;
   rollback(): Promise<void>;
   writeOut(text: string): void;
   writeErr(text: string): void;
 }
 
-const ADMIN = new Set(["install", "start", "stop", "restart", "status", "logs", "attach", "replay", "daemon", "mcp", "tunnel", "doctor", "support-bundle", "repair", "update", "rollback"]);
+const ADMIN = new Set(["install", "start", "stop", "restart", "status", "logs", "attach", "replay", "daemon", "mcp", "tunnel", "doctor", "support-bundle", "repair", "update", "update-local", "rollback"]);
 
 export async function runCli(argv: string[], deps: CliDependencies): Promise<number> {
   const command = argv[0];
@@ -97,8 +98,11 @@ export async function runCli(argv: string[], deps: CliDependencies): Promise<num
         if (result) deps.writeOut(result);
         return 0;
       }
-      case "update": {
-        await deps.update();
+      case "update":
+      case "update-local": {
+        const update = command === "update-local" ? deps.updateLocal ?? deps.update : deps.update ?? deps.updateLocal;
+        if (!update) throw new Error("update-local is unavailable");
+        await update();
         return 0;
       }
       case "rollback": {
@@ -131,8 +135,9 @@ Commands:
   doctor [--json]                         Run health diagnostics (--json for machine-readable output)
   support-bundle [path]                   Write a bounded local redacted diagnostics bundle
   repair                                  Opt-in repair of a locally proven dead/stuck tunnel
-  update     Build and promote new binary (with backup)
-  rollback   Restore previous binary from backup
+  update                                 Build and promote new binary transactionally
+  update-local                            Build/test current checkout and promote it transactionally
+  rollback                               Restore previous runtime transactionally
 `;
 
 function requireOption(args: string[], name: string): string {
