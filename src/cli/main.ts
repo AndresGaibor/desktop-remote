@@ -23,6 +23,7 @@ export interface CliDependencies {
   mcpServe(): Promise<void>;
   tunnelInit(args: string[]): Promise<void>;
   tunnelDoctor(): Promise<void>;
+  tunnelStatus(): Promise<void>;
   writeOut(text: string): void;
   writeErr(text: string): void;
 }
@@ -70,7 +71,8 @@ export async function runCli(argv: string[], deps: CliDependencies): Promise<num
           return 0;
         }
         if (subcommand === "doctor") { await deps.tunnelDoctor(); return 0; }
-        throw new Error("tunnel requires init or doctor");
+        if (subcommand === "status") { await deps.tunnelStatus(); return 0; }
+        throw new Error("tunnel requires init, doctor, or status");
       }
     }
     return 1;
@@ -94,6 +96,7 @@ Commands:
   mcp        Start the local MCP server over stdio
   tunnel init --tunnel-id ID --profile FILE  Save profile and generate an optional tunnel service
   tunnel doctor                           Validate the local tunnel profile
+  tunnel status                           Probe local tunnel liveness and readiness
 `;
 
 function requireOption(args: string[], name: string): string {
