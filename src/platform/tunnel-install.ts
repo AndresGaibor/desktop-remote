@@ -1,8 +1,10 @@
-import { chmod, mkdir, open, readFile, rename, rm } from "node:fs/promises";
+import { chmod, mkdir, open, readFile, rename, rm, stat } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { parseTunnelProfile, serializeTunnelProfile } from "../tunnel/config";
 import type { DesktopRemotePaths } from "./paths";
 import { launchAgentTunnelPlist, systemdTunnelUnit } from "./tunnel-services";
+import { requireSuccess, type CommandRunner } from "./command-runner";
+import type { Platform } from "./paths";
 
 export interface InitializeTunnelOptions {
   tunnelId: string;
@@ -46,10 +48,45 @@ export async function doctorTunnel(paths: DesktopRemotePaths): Promise<TunnelDoc
   return { valid: true, tunnelId: profile.tunnelId };
 }
 
+export async function restartTunnelServiceIfConfigured(
+  paths: DesktopRemotePaths,
+  options: { platform: Platform; run: CommandRunner; uid?: number },
+): Promise<void> {
+  if (options.platform === "darwin") {
+    const servicePath = paths.tunnelLaunchAgentPath;
+    if (!servicePath || !await fileExists(servicePath)) return;
+    const uid = options.uid ?? process.getuid?.();
+    if (uid === undefined) throw new Error("Unable to determine macOS user id");
+    requireSuccess(
+      await options.run("launchctl", ["kickstart", "-k", `gui/${uid}/com.desktop-remote.tunnel`]),
+      "launchctl restart tunnel",
+    );
+    return;
+  }
+
+  if (options.platform === "linux") {
+    const servicePath = paths.tunnelSystemdUserUnitPath;
+    if (!servicePath || !await fileExists(servicePath)) return;
+    requireSuccess(
+      await options.run("systemctl", ["--user", "restart", "desktop-remote-tunnel.service"]),
+      "systemctl restart tunnel",
+    );
+  }
+}
+
 function servicePathFor(paths: DesktopRemotePaths): string {
   if (paths.tunnelLaunchAgentPath) return paths.tunnelLaunchAgentPath;
   if (paths.tunnelSystemdUserUnitPath) return paths.tunnelSystemdUserUnitPath;
   throw new Error("tunnel service path is unavailable on this platform");
+}
+
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function writeAtomic(path: string, contents: string): Promise<void> {

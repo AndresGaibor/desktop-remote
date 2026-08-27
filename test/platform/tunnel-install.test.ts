@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { getDesktopRemotePaths } from "../../src/platform/paths";
-import { doctorTunnel, initializeTunnel } from "../../src/platform/tunnel-install";
+import { doctorTunnel, initializeTunnel, restartTunnelServiceIfConfigured } from "../../src/platform/tunnel-install";
 
 const tunnelId = "tunnel_0123456789abcdef0123456789abcdef";
 
@@ -24,6 +24,40 @@ describe("tunnel installation", () => {
     await mkdir(paths.appSupportDir, { recursive: true });
     await initializeTunnel(paths, { tunnelId, profile: JSON.stringify({ tunnel_id: tunnelId, mcp_command: "desktop-remote mcp" }), tunnelCommand: "/opt/tunnel-client" });
     await expect(doctorTunnel(paths)).resolves.toEqual({ valid: true, tunnelId });
+  });
+
+  test("restartTunnelServiceIfConfigured recarga el LaunchAgent configurado en macOS", async () => {
+    const home = await mkdtemp(join(tmpdir(), "desktop-remote-tunnel-"));
+    const paths = getDesktopRemotePaths(home, {}, "darwin");
+    await mkdir(paths.appSupportDir, { recursive: true });
+    await initializeTunnel(paths, { tunnelId, profile: JSON.stringify({ tunnel_id: tunnelId, mcp_command: "desktop-remote mcp" }), tunnelCommand: "/opt/tunnel-client" });
+    const calls: Array<{ command: string; args: string[] }> = [];
+    await restartTunnelServiceIfConfigured(paths, {
+      platform: "darwin",
+      uid: 501,
+      run: async (command, args) => {
+        calls.push({ command, args });
+        return { exitCode: 0, stdout: "", stderr: "" };
+      },
+    });
+    expect(calls).toEqual([
+      { command: "launchctl", args: ["kickstart", "-k", "gui/501/com.desktop-remote.tunnel"] },
+    ]);
+  });
+
+  test("restartTunnelServiceIfConfigured is a no-op when tunnel is not configured", async () => {
+    const home = await mkdtemp(join(tmpdir(), "desktop-remote-tunnel-"));
+    const paths = getDesktopRemotePaths(home, {}, "darwin");
+    const calls: Array<{ command: string; args: string[] }> = [];
+    await restartTunnelServiceIfConfigured(paths, {
+      platform: "darwin",
+      uid: 501,
+      run: async (command, args) => {
+        calls.push({ command, args });
+        return { exitCode: 0, stdout: "", stderr: "" };
+      },
+    });
+    expect(calls).toEqual([]);
   });
 
   test("rejects literal API keys", async () => {

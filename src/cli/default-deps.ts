@@ -13,7 +13,7 @@ import { readDesiredState } from "../platform/desired-state";
 import { DynamicUserServiceManager } from "../platform/dynamic-service-manager";
 import { installProductionArtifacts } from "../platform/install";
 import { getDesktopRemotePaths, type Platform } from "../platform/paths";
-import { doctorTunnel, initializeTunnel } from "../platform/tunnel-install";
+import { doctorTunnel, initializeTunnel, restartTunnelServiceIfConfigured } from "../platform/tunnel-install";
 import { probeTunnelHealth } from "../platform/tunnel-health";
 import { tunnelHealthUrlFile } from "../platform/tunnel-services";
 import { runCommand } from "../platform/command-runner";
@@ -46,7 +46,10 @@ export function createDefaultCliDependencies(): CliDependencies {
     paths,
     manager,
     requestStatus,
-    prepareInstall: () => installProductionArtifacts(paths).then(() => undefined),
+    prepareInstall: async () => {
+      await installProductionArtifacts(paths);
+      await restartTunnelServiceIfConfigured(paths, { platform, run: runCommand });
+    },
   });
 
   return {
@@ -97,7 +100,8 @@ export function createDefaultCliDependencies(): CliDependencies {
     update: async () => {
       const { buildAndPromoteWithBackup } = await import("../platform/install");
       await buildAndPromoteWithBackup(paths);
-      process.stdout.write("Binary updated successfully. Previous version backed up to .bak\n");
+      await restartTunnelServiceIfConfigured(paths, { platform, run: runCommand });
+      process.stdout.write("Binary updated successfully. Previous version backed up to .bak; tunnel MCP reloaded when configured\n");
     },
     rollback: async () => {
       const { rollbackBinary } = await import("../platform/install");
