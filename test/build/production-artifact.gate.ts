@@ -109,16 +109,18 @@ describe("production artifact regression gate", () => {
         expect(started.isError).not.toBe(true);
         const startedContent = outputSchemas.start_process.parse(started.structuredContent);
 
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        try {
+          await new Promise((resolve) => setTimeout(resolve, 500));
 
-        const output = await client.callTool({ name: "read_process_output", arguments: { pid: startedContent.pid } });
-        expect(output.isError).not.toBe(true);
-        const outputContent = outputSchemas.read_process_output.parse(output.structuredContent);
-        expect(outputContent.stdout).toContain("contract-ok");
-        expect(outputContent.status).not.toBe("failed");
-        expect(["completed", "running"]).toContain(outputContent.status);
-
-        await client.callTool({ name: "kill_process", arguments: { pid: startedContent.pid } });
+          const output = await client.callTool({ name: "read_process_output", arguments: { pid: startedContent.pid } });
+          expect(output.isError).not.toBe(true);
+          const outputContent = outputSchemas.read_process_output.parse(output.structuredContent);
+          expect(outputContent.stdout).toContain("contract-ok");
+          expect(outputContent.status).not.toBe("failed");
+          expect(["completed", "running"]).toContain(outputContent.status);
+        } finally {
+          await client.callTool({ name: "kill_process", arguments: { pid: startedContent.pid } });
+        }
       } finally {
         await client.close();
       }
