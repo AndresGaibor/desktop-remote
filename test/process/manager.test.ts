@@ -163,8 +163,7 @@ describe("ProcessManager lifecycle y retención", () => {
     const started = await manager.start([process.execPath, "-e", parentCode]);
 
     await manager.readOutput(started.id, { timeout_ms: 1000 });
-    await Bun.sleep(50);
-    await expect(readFile(childReady, "utf8")).resolves.toBe("ready");
+    await waitUntilFileExists(childReady, Date.now() + 2_000);
     await manager.terminate(started.pid);
     await expect(readFile(marker, "utf8")).resolves.toBe("terminated");
   });
@@ -231,6 +230,19 @@ describe("contrato MCP de procesos", () => {
     }).success).toBe(true);
   });
 });
+
+async function waitUntilFileExists(path: string, deadline: number): Promise<void> {
+  while (Date.now() < deadline) {
+    try {
+      await readFile(path, "utf8");
+      return;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    await Bun.sleep(10);
+  }
+  throw new Error(`Timed out waiting for child readiness file: ${path}`);
+}
 
 describe("ProcessManager concurrencia", () => {
   test("start rechaza cuando se excede maxConcurrentProcesses", async () => {
