@@ -28,6 +28,7 @@ import { OperationIpcClient } from "../client/operation-ipc-client";
 import { runDoctor, type DoctorDependencies, type DoctorServiceMetadata, formatDoctorReportJson } from "../doctor/doctor";
 import { createSupportBundle } from "../doctor/support-bundle";
 import { computeToolSchemaHash } from "../config/schema-hash";
+import { computeMcpToolCatalogHash, createToolDefinitions } from "../mcp/tools";
 import { ConfigStore, defaultConfig } from "../config/store";
 
 export function createDefaultCliDependencies(): CliDependencies {
@@ -189,6 +190,7 @@ async function collectDoctorData(
     logPaths,
     schemaHashCurrent: schemaHashInfo.current,
     schemaHashStored: schemaHashInfo.stored,
+    mcpCatalogFingerprint: computeMcpToolCatalogHash(createToolDefinitions()),
     configValid: configValidation.valid,
     configErrors: configValidation.errors,
     buildMetadata,

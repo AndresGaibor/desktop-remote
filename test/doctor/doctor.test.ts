@@ -30,6 +30,7 @@ describe("runDoctor", () => {
       recentErrors: [],
       schemaHashCurrent: "abc123",
       schemaHashStored: "abc123",
+      mcpCatalogFingerprint: "a".repeat(64),
       configValid: true,
       configErrors: [],
     });
@@ -38,6 +39,7 @@ describe("runDoctor", () => {
     expect(report.daemon.alive).toBe(true);
     expect(report.daemon.pid).toBe(12345);
     expect(report.mcp.reachable).toBe(true);
+    expect(report.mcp.catalogFingerprint).toBe("a".repeat(64));
     expect(report.tunnel.healthy).toBe(true);
     expect(report.tunnel.detail).toBe("ready");
     expect(report.disk.freeBytes).toBe(1_000_000n);

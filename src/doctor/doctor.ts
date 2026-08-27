@@ -34,6 +34,7 @@ export interface DoctorDependencies {
   recentErrors: string[];
   schemaHashCurrent: string;
   schemaHashStored: string;
+  mcpCatalogFingerprint?: string;
   configValid: boolean;
   configErrors: string[];
   tunnelDiagnostics?: TunnelDiagnostics;
@@ -50,6 +51,7 @@ export interface DoctorReport {
   };
   mcp: {
     reachable: boolean;
+    catalogFingerprint?: string;
     status?: string;
     pid?: number;
     channel?: { status?: string; pid?: number };
@@ -145,6 +147,7 @@ function buildReport(deps: DoctorDependencies): DoctorReport {
     daemon: { alive: daemonAlive, pid: daemonPid, service: deps.serviceStatus },
     mcp: {
       reachable: mcpReachable,
+      ...(deps.mcpCatalogFingerprint ? { catalogFingerprint: deps.mcpCatalogFingerprint } : {}),
       ...(mcpStatus?.status !== undefined ? { status: mcpStatus.status } : {}),
       ...(mcpStatus?.pid !== undefined ? { pid: mcpStatus.pid } : {}),
       ...(selected.channel ? { channel: selected.channel } : {}),
