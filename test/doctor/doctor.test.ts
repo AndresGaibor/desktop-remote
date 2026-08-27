@@ -93,7 +93,7 @@ describe("runDoctor", () => {
     expect(report.schemaHash.drift).toBe(true);
   });
 
-  test("reporta healthy=false cuando hay errores recientes en logs", async () => {
+  test("reporta historicalWarnings cuando hay errores recientes en logs", async () => {
     const report = await runDoctor("json", {
       daemonAlive: true,
       daemonPid: 12345,
@@ -109,8 +109,9 @@ describe("runDoctor", () => {
       configErrors: [],
     });
 
-    expect(report.healthy).toBe(false);
-    expect(report.logs.recentErrors).toEqual(["Connection refused", "Timeout error"]);
+    expect(report.healthy).toBe(true);
+    expect(report.historicalWarnings).toEqual(["Connection refused", "Timeout error"]);
+    expect(report.logs.recentErrors).toEqual([]);
   });
 
   test("reporta healthy=false cuando config es invalido", async () => {
@@ -231,7 +232,7 @@ describe("runDoctor", () => {
       configErrors: [],
     });
 
-    expect(report.logs.recentErrors).toHaveLength(10);
-    expect(report.logs.recentErrors.every((entry) => entry.length <= 256)).toBe(true);
+    expect(report.historicalWarnings ?? []).toHaveLength(10);
+    expect((report.historicalWarnings ?? []).every((entry) => entry.length <= 256)).toBe(true);
   });
 });
