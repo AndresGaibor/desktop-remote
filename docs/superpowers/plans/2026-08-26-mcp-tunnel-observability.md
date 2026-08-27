@@ -4,7 +4,7 @@
 
 **Goal:** Make Secure MCP Tunnel failures diagnosable after the control channel is unavailable, and provide a local readiness check that distinguishes daemon, tunnel, and MCP transport failures.
 
-**Architecture:** Keep MCP stdout protocol-only. Persist tunnel process stdout/stderr through the platform service manager, persist MCP lifecycle/fatal events to a dedicated rotating JSONL log, and add a `tunnel status` probe that reads the dynamic health URL and checks `/healthz` plus `/readyz`. Do not add speculative automatic restart loops; recovery remains explicit until the new telemetry identifies the failing boundary.
+**Architecture:** Keep MCP stdout protocol-only. Persist tunnel process stdout/stderr through the platform service manager, persist sanitized MCP startup/transport lifecycle events to a dedicated rotating JSONL log, and add a `tunnel status` probe that reads the dynamic health URL and checks `/healthz` plus `/readyz`. Telemetry is best-effort and must never become an availability dependency. Do not add speculative automatic restart loops; recovery remains explicit until the new telemetry identifies the failing boundary.
 
 **Tech Stack:** TypeScript, Bun, Node.js fs/fetch, MCP stdio, launchd/systemd, existing `RotatingDaemonLog`.
 
@@ -14,6 +14,7 @@
 
 - Never write secrets, tunnel API keys, tokens, or tool arguments to logs.
 - MCP stdout is reserved exclusively for MCP stdio protocol traffic.
+- A logging failure must never prevent MCP startup, disconnect a healthy transport, or mask the original transport error.
 - macOS logs live below `~/Library/Application Support/desktop-remote/logs`.
 - Linux should continue to use systemd/journald for tunnel stdout/stderr.
 - Tests must be written first and observed failing before production changes.
@@ -48,7 +49,7 @@
 - [ ] **Step 3:** Generate escaped log paths in the launchd plist and ensure `logsDir` exists during tunnel initialization.
 - [ ] **Step 4:** Run the focused test and full suite.
 
-### Task 3: Add MCP lifecycle/fatal logging
+### Task 3: Add best-effort MCP lifecycle logging
 
 **Files:**
 - Create: `src/mcp/run-stdio-server.ts`
@@ -58,12 +59,13 @@
 
 **Interfaces:**
 - Consumes: `DesktopRemotePaths`, an MCP server, `StdioServerTransport`, and `RotatingDaemonLog`.
-- Produces: `runMcpStdioServer()` that logs startup, stdio attachment, clean signal intent, uncaught-exception monitoring, unhandled rejection, and startup failure without logging MCP payloads.
+- Produces: `runMcpStdioServer()` that logs sanitized process startup, successful stdio attachment, and transport-start failure without logging MCP payloads. Logger failures are swallowed so observability cannot break MCP availability or mask transport errors.
 
 - [ ] **Step 1:** Write tests against an injected logger/server/transport proving lifecycle and failure events are emitted without payload data.
 - [ ] **Step 2:** Run tests and confirm the module is missing/failing.
-- [ ] **Step 3:** Implement the small lifecycle wrapper and route both MCP entry points through it.
-- [ ] **Step 4:** Run focused and full tests plus typecheck.
+- [ ] **Step 3:** Add failing tests proving logger failure cannot prevent transport connection or replace the original transport error.
+- [ ] **Step 4:** Implement the lifecycle wrapper and route both MCP entry points through it.
+- [ ] **Step 5:** Run focused and full tests plus typecheck.
 
 ### Task 4: Add tunnel liveness/readiness status
 
@@ -75,10 +77,10 @@
 - Modify: `docs/CHATGPT_MCP_RUNBOOK.md`
 
 **Interfaces:**
-- Consumes: `paths.tunnelHealthUrlPath`, injected `readFile`/`fetch` for tests.
+- Consumes: the dynamic tunnel health URL file, injected `readFile`/`fetch` for tests.
 - Produces: `probeTunnelHealth()` returning the health base URL and separate live/ready HTTP statuses; CLI `desktop-remote tunnel status` prints JSON.
 
-- [ ] **Step 1:** Write failing tests for healthy, alive-but-unready, missing URL file, and unreachable endpoint cases.
+- [ ] **Step 1:** Write failing tests for healthy, alive-but-unready, missing URL file, unreachable endpoint, and non-loopback URL cases.
 - [ ] **Step 2:** Run tests and confirm failure.
 - [ ] **Step 3:** Implement bounded local-only health probing and expose it through the CLI.
 - [ ] **Step 4:** Update the runbook to use the new command before raw curl fallback.
