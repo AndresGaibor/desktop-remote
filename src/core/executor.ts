@@ -142,6 +142,8 @@ export class DesktopOperationExecutor {
         : requireStringArray(input.command, "command");
       return this.processes.start(command, {
         shell: optionalString(input.shell, "shell"),
+        cwd: optionalString(input.cwd, "cwd"),
+        env: optionalEnvironment(input.env, "env"),
         timeout_ms: optionalPositiveInteger(input.timeout_ms, "timeout_ms") ?? 30000,
       });
     }
@@ -152,6 +154,10 @@ export class DesktopOperationExecutor {
           timeout_ms: optionalPositiveInteger(input.timeout_ms, "timeout_ms"),
           offset: optionalNonNegativeInteger(input.offset, "offset"),
           length: optionalPositiveInteger(input.length, "length"),
+          stdout_offset: optionalNonNegativeInteger(input.stdout_offset, "stdout_offset"),
+          stdout_length: optionalPositiveInteger(input.stdout_length, "stdout_length"),
+          stderr_offset: optionalNonNegativeInteger(input.stderr_offset, "stderr_offset"),
+          stderr_length: optionalPositiveInteger(input.stderr_length, "stderr_length"),
         },
       );
     }
@@ -242,6 +248,18 @@ function requireString(value: unknown, field: string): string {
 function optionalString(value: unknown, field: string): string | undefined {
   if (value === undefined) return undefined;
   return requireString(value, field);
+}
+
+function optionalEnvironment(value: unknown, field: string): Record<string, string | null> | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error(`${field} must be an object`);
+  const environment: Record<string, string | null> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (!key) throw new Error(`${field} contains an invalid variable name`);
+    if (typeof entry !== "string" && entry !== null) throw new Error(`${field}.${key} must be a string or null`);
+    environment[key] = entry;
+  }
+  return environment;
 }
 
 function requireBoolean(value: unknown, field: string): boolean {

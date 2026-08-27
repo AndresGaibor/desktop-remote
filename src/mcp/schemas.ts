@@ -15,17 +15,25 @@ export const toolSchemas = {
     command: z.string().min(1),
     timeout_ms: z.number().int().positive().default(30000),
     shell: z.string().optional(),
+    cwd: z.string().min(1).optional(),
+    env: z.record(z.string(), z.union([z.string(), z.null()])).optional(),
   }),
 
   read_process_output: z.object({
     pid: z.number().int().positive(),
+    timeout_ms: z.number().int().positive().optional(),
     offset: z.number().int().nonnegative().optional(),
     length: z.number().int().positive().optional(),
+    stdout_offset: z.number().int().nonnegative().optional(),
+    stdout_length: z.number().int().positive().optional(),
+    stderr_offset: z.number().int().nonnegative().optional(),
+    stderr_length: z.number().int().positive().optional(),
   }),
 
   interact_with_process: z.object({
     pid: z.number().int().positive(),
     input: z.string(),
+    timeout_ms: z.number().int().positive().optional(),
     wait_for_prompt: z.boolean().optional(),
   }),
 

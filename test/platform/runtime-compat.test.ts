@@ -52,6 +52,16 @@ describe("cross-runtime daemon core", () => {
     expect(result.stderr).toBe("");
   });
 
+  test("Node.js can spawn and collect a managed process without Bun globals", async () => {
+    const result = await run([
+      nodeExecutable, "--import", "tsx", "--input-type=module", "-e",
+      "const { ProcessManager } = await import('./src/process/manager.ts'); const manager = new ProcessManager(); const started = await manager.start([process.execPath, '-e', \"process.stdout.write('node-process-ok')\"]); const output = await manager.readOutput(started.id); if (output.output !== 'node-process-ok' || output.status !== 'completed') process.exit(1); console.log('process-ok')",
+    ]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.trim()).toBe("process-ok");
+    expect(result.stderr).toBe("");
+  });
+
   test("portable sleep keeps Node alive for daemon backoff", async () => {
     const result = await run([
       nodeExecutable, "--import", "tsx", "--input-type=module", "-e",
