@@ -144,4 +144,26 @@ describe("probeTunnelDiagnostics", () => {
     expect(result.api.system.available).toBe(false);
     expect(result.metrics.available).toBe(false);
   });
+
+  test("interpreta dispatcher_worker_pool_occupancy como workers activos, no como porcentaje", async () => {
+    const result = await probeTunnelDiagnostics("/tmp/tunnel-health.url", {
+      readFile: async () => "http://127.0.0.1:4321",
+      fetch: async (input) => {
+        const url = String(input);
+        if (url.endsWith("/healthz")) return response(200, "live");
+        if (url.endsWith("/readyz")) return response(200, "ready");
+        if (url.endsWith("/metrics")) return response(200, [
+          "commands_queue_capacity 20",
+          "commands_queue_length 0",
+          "dispatcher_worker_pool_capacity 10",
+          "dispatcher_worker_pool_occupancy 1",
+        ].join("\n"));
+        throw new Error("optional endpoint unavailable");
+      },
+    });
+
+    expect(result.selected.queue).toEqual({ depth: 0, capacity: 20 });
+    expect(result.selected.workers).toEqual({ active: 1, capacity: 10, occupancy: 0.1 });
+  });
+
 });

@@ -47,7 +47,7 @@ export interface TunnelSelectedDiagnostics {
   readiness: boolean;
   pid?: number;
   polling?: TunnelPollingDiagnostics;
-  queue?: { depth?: number };
+  queue?: { depth?: number; capacity?: number };
   workers?: { active?: number; capacity?: number; occupancy?: number };
   mcp?: TunnelComponentDiagnostics;
   channel?: TunnelComponentDiagnostics;
@@ -341,6 +341,7 @@ function parseSelectedMetrics(body: string): TunnelSelectedDiagnostics {
   const selected: TunnelSelectedDiagnostics = { liveness: false, readiness: false };
   let lastSuccessAt: string | undefined;
   let queueDepth: number | undefined;
+  let queueCapacity: number | undefined;
   let active: number | undefined;
   let capacity: number | undefined;
   let pollingAgeMs: number | undefined;
@@ -355,8 +356,13 @@ function parseSelectedMetrics(body: string): TunnelSelectedDiagnostics {
       lastSuccessAt = timestampFromEpoch(number);
     } else if (/(?:poll|dispatch)/.test(name) && /(?:age|lag)/.test(name)) {
       pollingAgeMs = number * 1_000;
-    } else if (/queue/.test(name) && /(?:depth|pending|queued|size)/.test(name)) {
+    } else if (/queue/.test(name) && /(?:depth|length|pending|queued|size)/.test(name)) {
       queueDepth = number;
+    } else if (/queue/.test(name) && /(?:capacity|max|limit)/.test(name)) {
+      queueCapacity = number;
+    } else if (/dispatcher_worker_pool_occupancy$/.test(name)) {
+      // tunnel-client 0.0.13 documents this gauge as the count of running workers.
+      active = number;
     } else if (/worker/.test(name) && /(?:active|busy|running|inflight|in_flight)/.test(name)) {
       active = number;
     } else if (/worker/.test(name) && /(?:capacity|max|concurrency|limit)/.test(name)) {
@@ -381,7 +387,10 @@ function parseSelectedMetrics(body: string): TunnelSelectedDiagnostics {
       ...(pollingAgeMs !== undefined && pollingAgeMs >= 0 ? { ageMs: pollingAgeMs, stale: pollingAgeMs > POLLING_STALE_AFTER_MS } : {}),
     };
   }
-  if (queueDepth !== undefined) selected.queue = { depth: queueDepth };
+  if (queueDepth !== undefined || queueCapacity !== undefined) selected.queue = {
+    ...(queueDepth !== undefined ? { depth: queueDepth } : {}),
+    ...(queueCapacity !== undefined ? { capacity: queueCapacity } : {}),
+  };
   if (active !== undefined || capacity !== undefined || workerOccupancy !== undefined) {
     selected.workers = {
       ...(active !== undefined ? { active } : {}),
