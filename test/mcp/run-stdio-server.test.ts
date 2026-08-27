@@ -8,6 +8,12 @@ class MemoryLogger implements McpLifecycleLogger {
   async error(message: string, data?: unknown): Promise<void> { this.events.push({ level: "error", message, data }); }
 }
 
+class FailingLogger implements McpLifecycleLogger {
+  async info(): Promise<void> { throw new Error("disk unavailable"); }
+  async warn(): Promise<void> { throw new Error("disk unavailable"); }
+  async error(): Promise<void> { throw new Error("disk unavailable"); }
+}
+
 describe("runMcpStdioServer", () => {
   test("records startup and successful stdio attachment without protocol payloads", async () => {
     const logger = new MemoryLogger();
@@ -34,5 +40,32 @@ describe("runMcpStdioServer", () => {
     const serialized = JSON.stringify(logger.events);
     expect(serialized).toContain("mcp stdio transport failed");
     expect(serialized).not.toContain(secret);
+  });
+
+  test("logging failures never prevent a healthy MCP transport from connecting", async () => {
+    let connected = false;
+    const server = { connect: async () => { connected = true; } };
+
+    await expect(runMcpStdioServer({
+      server,
+      transport: {},
+      logger: new FailingLogger(),
+      pid: 101,
+      ppid: 99,
+    })).resolves.toBeUndefined();
+
+    expect(connected).toBe(true);
+  });
+
+  test("logging failures never mask the original MCP transport error", async () => {
+    const server = { connect: async () => { throw new Error("transport closed"); } };
+
+    await expect(runMcpStdioServer({
+      server,
+      transport: {},
+      logger: new FailingLogger(),
+      pid: 101,
+      ppid: 99,
+    })).rejects.toThrow("transport closed");
   });
 });
