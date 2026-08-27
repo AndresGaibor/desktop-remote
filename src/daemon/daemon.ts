@@ -5,6 +5,7 @@ import { HistoryStore } from "./history-store";
 import type { RuntimeSessionSnapshot } from "../session/types";
 import type { SupervisorStatus } from "./supervisor";
 import type { OperationExecutor } from "../mcp/handler";
+import type { WatchdogHungEvent } from "./self-healing";
 
 export interface SupervisorController {
   start(): void;
@@ -109,6 +110,16 @@ export class DesktopRemoteDaemon {
   onEvent(listener: (event: RuntimeEvent) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  consumeWatchdogEvent(event: WatchdogHungEvent): void {
+    if (!this.started) return;
+    const runtimeError: RuntimeEvent = {
+      type: "runtime.error",
+      message: `Operation ${event.operationName} hung for ${event.hungDurationMs}ms (deadline: ${event.deadline})`,
+      at: Date.now(),
+    };
+    this.consume(runtimeError);
   }
 
   private consume(rawEvent: RuntimeEvent): void {
