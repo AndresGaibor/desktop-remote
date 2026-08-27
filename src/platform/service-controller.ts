@@ -26,6 +26,7 @@ export interface ServiceControllerOptions {
   sleep?: (ms: number) => Promise<void>;
   healthAttempts?: number;
   onBeforeManagerStop?: () => Promise<void>;
+  onAfterManagerRestart?: () => Promise<void>;
   prepareInstall?: () => Promise<void>;
 }
 
@@ -64,6 +65,7 @@ export class ServiceController {
     const desired = await readDesiredState(this.options.paths.desiredStatePath);
     if (desired === "stopped") throw new Error("Desktop Remote is intentionally stopped. Run: desktop-remote start");
     await this.options.manager.restart();
+    await this.options.onAfterManagerRestart?.();
     return this.waitForHealthy();
   }
 

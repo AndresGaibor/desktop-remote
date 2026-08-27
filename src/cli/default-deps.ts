@@ -42,14 +42,18 @@ export function createDefaultCliDependencies(): CliDependencies {
       await client.close();
     }
   };
+  const restartTunnel = async () => {
+    await restartTunnelServiceIfConfigured(paths, { platform, run: runCommand });
+  };
   const service = new ServiceController({
     paths,
     manager,
     requestStatus,
     prepareInstall: async () => {
       await installProductionArtifacts(paths);
-      await restartTunnelServiceIfConfigured(paths, { platform, run: runCommand });
+      await restartTunnel();
     },
+    onAfterManagerRestart: restartTunnel,
   });
 
   return {
@@ -106,7 +110,8 @@ export function createDefaultCliDependencies(): CliDependencies {
     rollback: async () => {
       const { rollbackBinary } = await import("../platform/install");
       await rollbackBinary(paths.binDir, "desktop-remote");
-      process.stdout.write("Binary rolled back successfully\n");
+      await restartTunnel();
+      process.stdout.write("Binary rolled back successfully; tunnel MCP reloaded when configured\n");
     },
     writeOut: (text) => process.stdout.write(`${text}\n`),
     writeErr: (text) => process.stderr.write(`desktop-remote: ${text}\n`),
