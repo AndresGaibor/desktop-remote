@@ -23,17 +23,26 @@ export async function runMcpStdioServer<TTransport>(
 ): Promise<void> {
   const pid = options.pid ?? process.pid;
   const ppid = options.ppid ?? process.ppid;
-  await options.logger.info("mcp process starting", { pid, ppid });
+  await bestEffortLog(() => options.logger.info("mcp process starting", { pid, ppid }));
 
   try {
     await options.server.connect(options.transport);
-    await options.logger.info("mcp stdio transport connected", { pid });
   } catch (error) {
-    await options.logger.error("mcp stdio transport failed", {
+    await bestEffortLog(() => options.logger.error("mcp stdio transport failed", {
       pid,
       error: safeError(error),
-    });
+    }));
     throw error;
+  }
+
+  await bestEffortLog(() => options.logger.info("mcp stdio transport connected", { pid }));
+}
+
+async function bestEffortLog(write: () => Promise<void>): Promise<void> {
+  try {
+    await write();
+  } catch {
+    // Observability must never become an availability dependency for MCP stdio.
   }
 }
 
