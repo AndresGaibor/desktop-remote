@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { describe, expect, test } from "bun:test";
-import { computePerToolSchemaHashes, computeToolSchemaHash } from "../../src/config/schema-hash";
+import { computePerToolSchemaHashes, computeToolSchemaHash, describeSchemaHash } from "../../src/config/schema-hash";
 
 describe("computeToolSchemaHash", () => {
   test("es estable entre dos llamadas", () => {
@@ -32,5 +32,16 @@ describe("computePerToolSchemaHashes", () => {
     const h1 = computePerToolSchemaHashes();
     const h2 = computePerToolSchemaHashes();
     expect(h1).toEqual(h2);
+  });
+});
+
+describe("describeSchemaHash", () => {
+  test("expone fingerprint actual, instalado y drift de forma estable", () => {
+    expect(describeSchemaHash("current-hash", "stored-hash")).toEqual({
+      current: "current-hash",
+      stored: "stored-hash",
+      drift: true,
+    });
+    expect(describeSchemaHash("same", "same").drift).toBe(false);
   });
 });

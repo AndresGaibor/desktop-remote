@@ -1,6 +1,6 @@
 import "./zod-lazy-patch";
 import { platform as nodePlatform } from "node:os";
-import { readFile, statfs } from "node:fs/promises";
+import { open, readFile, stat, statfs } from "node:fs/promises";
 import { join } from "node:path";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { DesktopRemoteIpcClient } from "../client/ipc-client";
@@ -14,7 +14,7 @@ import { DynamicUserServiceManager } from "../platform/dynamic-service-manager";
 import { installProductionArtifacts } from "../platform/install";
 import { getDesktopRemotePaths, type Platform } from "../platform/paths";
 import { doctorTunnel, initializeTunnel, restartTunnelServiceIfConfigured } from "../platform/tunnel-install";
-import { probeTunnelHealth } from "../platform/tunnel-health";
+import { probeTunnelDiagnostics, probeTunnelHealth } from "../platform/tunnel-health";
 import { tunnelHealthUrlFile } from "../platform/tunnel-services";
 import { runCommand } from "../platform/command-runner";
 import { ServiceController } from "../platform/service-controller";
@@ -25,7 +25,8 @@ import type { CliDependencies } from "./main";
 import { createMcpServer } from "../mcp/server";
 import { runMcpStdioServer } from "../mcp/run-stdio-server";
 import { OperationIpcClient } from "../client/operation-ipc-client";
-import { runDoctor, type DoctorDependencies, formatDoctorReportJson } from "../doctor/doctor";
+import { runDoctor, type DoctorDependencies, type DoctorServiceMetadata, formatDoctorReportJson } from "../doctor/doctor";
+import { createSupportBundle } from "../doctor/support-bundle";
 import { computeToolSchemaHash } from "../config/schema-hash";
 import { ConfigStore, defaultConfig } from "../config/store";
 
@@ -92,7 +93,7 @@ export function createDefaultCliDependencies(): CliDependencies {
       process.stdout.write(`${JSON.stringify(status, null, 2)}\n`);
     },
     doctor: async (format) => {
-      const data = await collectDoctorData(paths);
+      const data = await collectDoctorData(paths, manager);
       if (format === "json") {
         const report = await runDoctor("json", data);
         process.stdout.write(`${formatDoctorReportJson(report)}\n`);
@@ -100,6 +101,26 @@ export function createDefaultCliDependencies(): CliDependencies {
         const text = await runDoctor("text", data);
         process.stdout.write(`${text}\n`);
       }
+    },
+    supportBundle: async (outputPath) => {
+      const data = await collectDoctorData(paths, manager);
+      const report = await runDoctor("json", data);
+      const logFiles = await readSupportBundleLogs(paths);
+      const target = outputPath ?? join(paths.appSupportDir, "support-bundles", `bundle-${new Date().toISOString().replace(/[:.]/g, "-")}`);
+      return (await createSupportBundle({ report, outputPath: target, logFiles })).path;
+    },
+    repair: async () => {
+      const { repairTunnel } = await import("../doctor/repair");
+      const servicePath = platform === "darwin" ? paths.tunnelLaunchAgentPath : paths.tunnelSystemdUserUnitPath;
+      const result = await repairTunnel(paths, {
+        collect: () => collectDoctorData(paths, manager),
+        restartTunnel: async () => {
+          if (!servicePath || !await pathExists(servicePath)) return false;
+          await restartTunnelServiceIfConfigured(paths, { platform, run: runCommand });
+          return true;
+        },
+      });
+      return result.message;
     },
     update: async () => {
       const { buildAndPromoteWithBackup } = await import("../platform/install");
@@ -139,29 +160,39 @@ async function replay(file: string): Promise<void> {
   await runTui({ source: REPLAY_SOURCE, store });
 }
 
-async function collectDoctorData(paths: ReturnType<typeof getDesktopRemotePaths>): Promise<DoctorDependencies> {
-  const [daemonStatus, tunnelHealth, diskSpace, recentErrors, schemaHashInfo, configValidation] = await Promise.all([
+async function collectDoctorData(
+  paths: ReturnType<typeof getDesktopRemotePaths>,
+  serviceManager?: { status(): Promise<DoctorServiceMetadata> },
+): Promise<DoctorDependencies> {
+  const [daemonStatus, tunnelDiagnostics, diskSpace, recentErrors, logPaths, schemaHashInfo, configValidation, buildMetadata, serviceStatus] = await Promise.all([
     checkDaemonAlive(paths),
-    checkTunnelHealth(paths),
+    checkTunnelDiagnostics(paths),
     checkDiskSpace(paths.appSupportDir),
     readRecentErrors(paths),
+    checkLogPaths(paths),
     checkSchemaHash(paths),
     validateConfig(paths),
+    readBuildMetadata(paths),
+    serviceManager ? readServiceStatus(serviceManager) : Promise.resolve(undefined),
   ]);
 
   return {
     daemonAlive: daemonStatus.alive,
     daemonPid: daemonStatus.pid,
     mcpReachable: daemonStatus.alive,
-    tunnelHealthy: tunnelHealth.healthy,
-    tunnelDetail: tunnelHealth.detail,
+    tunnelHealthy: tunnelDiagnostics.state === "ready",
+    tunnelDetail: tunnelDiagnostics.state,
+    tunnelDiagnostics,
     diskFreeBytes: diskSpace.freeBytes,
     diskTotalBytes: diskSpace.totalBytes,
     recentErrors,
+    logPaths,
     schemaHashCurrent: schemaHashInfo.current,
     schemaHashStored: schemaHashInfo.stored,
     configValid: configValidation.valid,
     configErrors: configValidation.errors,
+    buildMetadata,
+    serviceStatus,
   };
 }
 
@@ -178,16 +209,56 @@ async function checkDaemonAlive(paths: ReturnType<typeof getDesktopRemotePaths>)
   }
 }
 
-async function checkTunnelHealth(paths: ReturnType<typeof getDesktopRemotePaths>): Promise<{ healthy: boolean; detail?: string }> {
+async function checkTunnelDiagnostics(paths: ReturnType<typeof getDesktopRemotePaths>) {
   try {
-    const status = await probeTunnelHealth(tunnelHealthUrlFile(paths.tunnelProfilePath));
-    return {
-      healthy: status.state === "ready",
-      detail: status.state === "ready" ? "ready" : status.state,
-    };
+    return await probeTunnelDiagnostics(tunnelHealthUrlFile(paths.tunnelProfilePath));
   } catch (error) {
-    return { healthy: false, detail: error instanceof Error ? error.message : "unknown error" };
+    const detail = error instanceof Error ? error.message : "unknown error";
+    return {
+      baseUrl: null,
+      state: "unreachable" as const,
+      healthz: { ok: false, status: null, error: detail },
+      readyz: { ok: false, status: null, error: detail },
+      api: {
+        status: { available: false, status: null, error: detail },
+        system: { available: false, status: null, error: detail },
+      },
+      metrics: { available: false, status: null, error: detail },
+      selected: { liveness: false, readiness: false },
+    };
   }
+}
+
+async function readBuildMetadata(paths: ReturnType<typeof getDesktopRemotePaths>): Promise<NonNullable<DoctorDependencies["buildMetadata"]>> {
+  const layout = await (async () => {
+    try {
+      const parsed = JSON.parse(await readFile(join(paths.binDir, "build-layout.json"), "utf8")) as Record<string, unknown>;
+      if ((parsed.layout !== "single" && parsed.layout !== "split") || typeof parsed.cli !== "string" || typeof parsed.daemon !== "string") {
+        throw new Error("invalid build metadata");
+      }
+      return {
+        layout: parsed.layout,
+        cli: parsed.cli,
+        daemon: parsed.daemon,
+        daemonArgs: Array.isArray(parsed.daemonArgs) ? parsed.daemonArgs.filter((arg): arg is string => typeof arg === "string") : [],
+      } as const;
+    } catch {
+      return { layout: "single" as const, cli: "desktop-remote", daemon: "desktop-remote", daemonArgs: ["daemon"] };
+    }
+  })();
+  const [cliPresent, daemonPresent] = await Promise.all([
+    pathExists(join(paths.binDir, layout.cli)),
+    pathExists(join(paths.binDir, layout.daemon)),
+  ]);
+  return { ...layout, cliPresent, daemonPresent, version: "1.0.0" };
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try { await stat(path); return true; } catch { return false; }
+}
+
+async function readServiceStatus(serviceManager: { status(): Promise<DoctorServiceMetadata> }): Promise<DoctorServiceMetadata | undefined> {
+  try { return await serviceManager.status(); } catch { return undefined; }
 }
 
 async function checkDiskSpace(appSupportDir: string): Promise<{ freeBytes: bigint; totalBytes: bigint }> {
@@ -211,7 +282,7 @@ async function readRecentErrors(paths: ReturnType<typeof getDesktopRemotePaths>)
         try {
           const entry = JSON.parse(line);
           if (entry.level === "error") {
-            errors.push(entry.message || String(entry));
+            errors.push(typeof entry.message === "string" ? entry.message : String(entry.message ?? entry));
             if (errors.length >= 10) break;
           }
         } catch {
@@ -227,6 +298,40 @@ async function readRecentErrors(paths: ReturnType<typeof getDesktopRemotePaths>)
     }
   }
   return errors;
+}
+
+async function checkLogPaths(paths: ReturnType<typeof getDesktopRemotePaths>): Promise<Record<string, boolean>> {
+  const names = ["daemon.log.2", "daemon.log.1", "daemon.log", "mcp.log", "tunnel.stdout.log", "tunnel.stderr.log"];
+  const result: Record<string, boolean> = {};
+  for (const name of names) result[name] = await pathExists(join(paths.logsDir, name));
+  return result;
+}
+
+async function readSupportBundleLogs(paths: ReturnType<typeof getDesktopRemotePaths>): Promise<Array<{ name: string; content: string }>> {
+  const names = ["daemon.log.2", "daemon.log.1", "daemon.log", "mcp.log", "tunnel.stdout.log", "tunnel.stderr.log"];
+  const files: Array<{ name: string; content: string }> = [];
+  for (const name of names) {
+    try {
+      files.push({ name, content: await readBoundedTail(join(paths.logsDir, name), 32 * 1024) });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+  return files;
+}
+
+async function readBoundedTail(path: string, maxBytes: number): Promise<string> {
+  const info = await stat(path);
+  const length = Math.min(maxBytes, info.size);
+  const offset = Math.max(0, info.size - length);
+  const handle = await open(path, "r");
+  try {
+    const buffer = Buffer.alloc(length);
+    const result = await handle.read(buffer, 0, length, offset);
+    return buffer.subarray(0, result.bytesRead).toString("utf8");
+  } finally {
+    await handle.close();
+  }
 }
 
 async function checkSchemaHash(paths: ReturnType<typeof getDesktopRemotePaths>): Promise<{ current: string; stored: string }> {

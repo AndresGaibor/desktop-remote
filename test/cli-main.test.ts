@@ -78,4 +78,14 @@ describe("runCli", () => {
     expect(await runCli(["tunnel", "init", "--tunnel-id", "t", "--profile", "sk-live-secret-value"], d)).toBe(1);
     expect(output.join("\n")).toMatch(/literal API key/i);
   });
+
+  test("routes support-bundle and repair as explicit opt-in commands", async () => {
+    const { d, calls } = deps();
+    d.supportBundle = async (path) => { calls.push(`support-bundle:${path ?? "default"}`); return path; };
+    d.repair = async () => { calls.push("repair"); };
+
+    expect(await runCli(["support-bundle", "/tmp/diagnostics"], d)).toBe(0);
+    expect(await runCli(["repair"], d)).toBe(0);
+    expect(calls).toEqual(["support-bundle:/tmp/diagnostics", "repair"]);
+  });
 });

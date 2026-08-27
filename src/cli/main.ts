@@ -25,13 +25,15 @@ export interface CliDependencies {
   tunnelDoctor(): Promise<void>;
   tunnelStatus(): Promise<void>;
   doctor(format: "json" | "text"): Promise<void>;
+  supportBundle?: (outputPath?: string) => Promise<string | void>;
+  repair?: () => Promise<string | void>;
   update(): Promise<void>;
   rollback(): Promise<void>;
   writeOut(text: string): void;
   writeErr(text: string): void;
 }
 
-const ADMIN = new Set(["install", "start", "stop", "restart", "status", "logs", "attach", "replay", "daemon", "mcp", "tunnel", "doctor", "update", "rollback"]);
+const ADMIN = new Set(["install", "start", "stop", "restart", "status", "logs", "attach", "replay", "daemon", "mcp", "tunnel", "doctor", "support-bundle", "repair", "update", "rollback"]);
 
 export async function runCli(argv: string[], deps: CliDependencies): Promise<number> {
   const command = argv[0];
@@ -81,6 +83,20 @@ export async function runCli(argv: string[], deps: CliDependencies): Promise<num
         await deps.doctor(argv.includes("--json") ? "json" : "text");
         return 0;
       }
+      case "support-bundle": {
+        if (!deps.supportBundle) throw new Error("support-bundle is unavailable");
+        const outputPath = argv[1] === "--output" ? argv[2] : argv[1];
+        if (argv[1] === "--output" && !outputPath) throw new Error("support-bundle requires a path after --output");
+        const result = await deps.supportBundle(outputPath);
+        if (result) deps.writeOut(result);
+        return 0;
+      }
+      case "repair": {
+        if (!deps.repair) throw new Error("repair is unavailable");
+        const result = await deps.repair();
+        if (result) deps.writeOut(result);
+        return 0;
+      }
       case "update": {
         await deps.update();
         return 0;
@@ -113,6 +129,8 @@ Commands:
   tunnel doctor                           Validate the local tunnel profile
   tunnel status                           Probe local tunnel liveness and readiness
   doctor [--json]                         Run health diagnostics (--json for machine-readable output)
+  support-bundle [path]                   Write a bounded local redacted diagnostics bundle
+  repair                                  Opt-in repair of a locally proven dead/stuck tunnel
   update     Build and promote new binary (with backup)
   rollback   Restore previous binary from backup
 `;

@@ -4,16 +4,27 @@ import type { ZodType } from "zod";
 
 const schemas = toolSchemas as Readonly<Record<string, ZodType>>;
 
+export interface SchemaHashDescription {
+  current: string;
+  stored: string;
+  drift: boolean;
+}
+
 function serializeZodCanonical(schema: unknown): unknown {
   if (schema === null || schema === undefined) return null;
   const def = (schema as Record<string, unknown>)._def as Record<string, unknown> | undefined;
   if (!def) return null;
   const typeName = def.typeName as string;
   if (typeName === "ZodObject") {
-    const shape = (schema as { shape: () => Record<string, unknown> }).shape;
+    const rawShape = (schema as { shape?: unknown }).shape;
+    const shape = typeof rawShape === "function"
+      ? (rawShape as () => Record<string, unknown>)()
+      : isRecord(rawShape)
+        ? rawShape
+        : undefined;
     if (!shape) return { typeName };
     const fields: Record<string, unknown> = {};
-    for (const [key, fieldSchema] of Object.entries(shape())) {
+    for (const [key, fieldSchema] of Object.entries(shape)) {
       fields[key] = serializeZodCanonical(fieldSchema);
     }
     return { typeName, fields: sortObject(fields) };
@@ -58,6 +69,10 @@ function serializeZodCanonical(schema: unknown): unknown {
   return { typeName };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function sortObject(obj: Record<string, unknown>): Record<string, unknown> {
   return Object.keys(obj)
     .sort()
@@ -86,4 +101,8 @@ export function computePerToolSchemaHashes(): Record<string, string> {
     result[name] = createHash("sha256").update(canonical).digest("hex");
   }
   return result;
+}
+
+export function describeSchemaHash(current: string, stored: string): SchemaHashDescription {
+  return { current, stored, drift: current !== stored };
 }

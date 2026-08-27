@@ -1,5 +1,21 @@
 import { describe, expect, test } from "bun:test";
 import { runDoctor, type DoctorReport } from "../../src/doctor/doctor";
+import type { TunnelDiagnostics } from "../../src/platform/tunnel-health";
+
+function tunnelDiagnostics(overrides: Partial<TunnelDiagnostics["selected"]> = {}): TunnelDiagnostics {
+  return {
+    baseUrl: "http://127.0.0.1:4321",
+    state: "ready",
+    healthz: { ok: true, status: 200, body: "live" },
+    readyz: { ok: true, status: 200, body: "ready" },
+    api: {
+      status: { available: true, status: 200, selected: { liveness: true, readiness: true } },
+      system: { available: true, status: 200, selected: { liveness: true, readiness: true, pid: 123 } },
+    },
+    metrics: { available: true, status: 200, selected: { liveness: true, readiness: true } },
+    selected: { liveness: true, readiness: true, ...overrides },
+  };
+}
 
 describe("runDoctor", () => {
   test("produce un reporte bien formado en formato json", async () => {
@@ -160,5 +176,60 @@ describe("runDoctor", () => {
     expect(report.tunnel.healthy).toBe(false);
     expect(report.tunnel.detail).toBe("unreachable");
     expect(report.healthy).toBe(false);
+  });
+
+  test("distingue salud local de polling stale del control plane", async () => {
+    const report = await runDoctor("json", {
+      daemonAlive: true,
+      daemonPid: 12345,
+      mcpReachable: true,
+      tunnelHealthy: true,
+      tunnelDetail: "ready",
+      tunnelDiagnostics: tunnelDiagnostics({
+        mcp: { status: "connected", pid: 234 },
+        channel: { status: "ready", pid: 235 },
+        polling: { lastSuccessAt: "2026-08-27T11:00:00.000Z", ageMs: 3_600_000, stale: true },
+        queue: { depth: 2 },
+        workers: { active: 2, capacity: 4, occupancy: 0.5 },
+        controlPlane: { reachable: false, stale: true },
+      }),
+      diskFreeBytes: 1_000_000n,
+      diskTotalBytes: 100_000_000n,
+      recentErrors: [],
+      schemaHashCurrent: "abc123",
+      schemaHashStored: "abc123",
+      configValid: true,
+      configErrors: [],
+      buildMetadata: { layout: "single", cli: "desktop-remote", daemon: "desktop-remote", version: "1.0.0" },
+      logPaths: { "daemon.log": true, "mcp.log": false },
+      serviceStatus: { loaded: true, enabled: true, active: true, pid: 12345 },
+    });
+
+    expect(report.local.healthy).toBe(true);
+    expect(report.controlPlane).toMatchObject({ status: "stale", stale: true, reachable: false });
+    expect(report.tunnel.selected.workers).toEqual({ active: 2, capacity: 4, occupancy: 0.5 });
+    expect(report.mcp).toMatchObject({ status: "connected", pid: 234, channel: { status: "ready", pid: 235 } });
+    expect(report.build).toMatchObject({ layout: "single", version: "1.0.0" });
+    expect(report.daemon.service).toEqual({ loaded: true, enabled: true, active: true, pid: 12345 });
+    expect(report.logs.paths).toEqual({ "daemon.log": true, "mcp.log": false });
+    expect(report.healthy).toBe(false);
+  });
+
+  test("limita errores recientes y nunca expone un arreglo sin cota", async () => {
+    const report = await runDoctor("json", {
+      daemonAlive: true,
+      mcpReachable: true,
+      tunnelHealthy: true,
+      diskFreeBytes: 1_000_000n,
+      diskTotalBytes: 100_000_000n,
+      recentErrors: Array.from({ length: 100 }, (_, index) => `${index}:${"x".repeat(1000)}`),
+      schemaHashCurrent: "abc123",
+      schemaHashStored: "abc123",
+      configValid: true,
+      configErrors: [],
+    });
+
+    expect(report.logs.recentErrors).toHaveLength(10);
+    expect(report.logs.recentErrors.every((entry) => entry.length <= 256)).toBe(true);
   });
 });
