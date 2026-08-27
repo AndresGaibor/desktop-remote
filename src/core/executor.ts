@@ -1,5 +1,5 @@
 import { appendTextFile, readTextFile, readUrl, writeTextFile } from "../filesystem/files";
-import { createDirectory, listDirectory, moveFile } from "../filesystem/directories";
+import { createDirectory, listDirectory, moveFile, DEFAULT_DIRECTORY_PAGE_SIZE } from "../filesystem/directories";
 import { editBlock } from "../filesystem/edit";
 import { getFileInfo } from "../filesystem/info";
 import { ProcessManager } from "../process/manager";
@@ -124,6 +124,10 @@ export class DesktopOperationExecutor {
       return listDirectory(
         requireString(input.path, "path"),
         optionalNonNegativeInteger(input.depth, "depth") ?? 2,
+        {
+          cursor: optionalString(input.cursor, "cursor"),
+          limit: optionalPositiveInteger(input.limit, "limit") ?? DEFAULT_DIRECTORY_PAGE_SIZE,
+        },
       );
     }
     if (name === "move_file") {

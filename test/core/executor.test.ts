@@ -52,6 +52,30 @@ describe("DesktopOperationExecutor", () => {
     await expect(readFile(path, "utf8")).resolves.toBe("new\nnew\n");
   });
 
+  test("paginates list_directory using limit and cursor", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "desktop-remote-directory-executor-"));
+    directories.push(directory);
+    await Promise.all(Array.from({ length: 8 }, (_, index) => writeFile(join(directory, `entry-${index}.txt`), "", "utf8")));
+
+    const executor = new DesktopOperationExecutor();
+    const first = await executor.execute("list_directory", { path: directory, depth: 0, limit: 3 }) as {
+      entries: Array<{ name: string }>;
+      cursor?: string;
+      hasMore: boolean;
+    };
+    const second = await executor.execute("list_directory", {
+      path: directory,
+      depth: 0,
+      limit: 3,
+      cursor: first.cursor,
+    }) as { entries: Array<{ name: string }>; hasMore: boolean };
+
+    expect(first.entries).toHaveLength(3);
+    expect(first.hasMore).toBe(true);
+    expect(second.entries).toHaveLength(3);
+    expect(second.entries[0]?.name).not.toBe(first.entries[0]?.name);
+  });
+
   test("usa el formato Excel para escribir y leer archivos de hoja de cálculo", async () => {
     const directory = await mkdtemp(join(tmpdir(), "desktop-remote-excel-executor-"));
     directories.push(directory);

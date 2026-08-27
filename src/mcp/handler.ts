@@ -1,3 +1,11 @@
+import {
+  boundResponse,
+  DEFAULT_RESPONSE_BUDGET,
+  estimateJsonBytes,
+  serializeResponse,
+  type ResponseBudget,
+} from "../core/response-budget";
+
 export interface OperationExecutionOptions {
   traceId?: string;
   deadlineAt?: number;
@@ -23,6 +31,7 @@ export interface McpToolResult {
 export interface ConcurrencyOptions {
   maxConcurrentOperations?: number;
   queueTimeoutMs?: number;
+  responseBudget?: ResponseBudget;
 }
 
 const REQUEST_WARN_THRESHOLD_MS = 5_000;
@@ -30,13 +39,20 @@ const MAX_TEXT_CONTENT_BYTES = 16_000;
 const DEFAULT_MAX_CONCURRENT = 8;
 const DEFAULT_QUEUE_TIMEOUT_MS = 30_000;
 
-function createBoundedToolResult(result: unknown): McpToolResult {
-  const structuredContent = result;
-  const text = result === undefined ? "" : JSON.stringify(result);
-  const content = text.length > MAX_TEXT_CONTENT_BYTES
-    ? [{ type: "text" as const, text: `[result truncated; ${Buffer.byteLength(text)} bytes total] use structuredContent for full payload` }]
-    : [{ type: "text" as const, text }];
-  return { content, structuredContent };
+export function createBoundedToolResult(result: unknown, responseBudget: ResponseBudget = {}): McpToolResult {
+  if (result === undefined) return { content: [{ type: "text", text: "" }] };
+
+  const budget = { ...DEFAULT_RESPONSE_BUDGET, ...responseBudget };
+  const bounded = boundResponse(result, budget);
+  const structuredContent = bounded.value;
+  const fitsText = estimateJsonBytes(result, MAX_TEXT_CONTENT_BYTES) <= MAX_TEXT_CONTENT_BYTES && !bounded.truncated;
+  const text = fitsText
+    ? serializeResponse(result, { ...budget, maxBytes: MAX_TEXT_CONTENT_BYTES })
+    : "Result is available in bounded structuredContent; use pagination or cursors for more data.";
+  return {
+    content: [{ type: "text", text }],
+    structuredContent,
+  };
 }
 
 export function createOperationHandler(
@@ -46,6 +62,7 @@ export function createOperationHandler(
 ) {
   const maxConcurrent = opts?.maxConcurrentOperations ?? DEFAULT_MAX_CONCURRENT;
   const queueTimeoutMs = opts?.queueTimeoutMs ?? DEFAULT_QUEUE_TIMEOUT_MS;
+  const responseBudget = opts?.responseBudget ?? DEFAULT_RESPONSE_BUDGET;
 
   let activeRequests = 0;
 
@@ -145,7 +162,10 @@ export function createOperationHandler(
     try {
       const result = await executor.execute(name, input, { traceId });
       const durationMs = Date.now() - startedAt;
-      const responseBytes = result === undefined ? 0 : Buffer.byteLength(JSON.stringify(result));
+      const toolResult = createBoundedToolResult(result, responseBudget);
+      const responseBytes = toolResult.structuredContent === undefined
+        ? 0
+        : estimateJsonBytes(toolResult.structuredContent);
       safeLog("info", "mcp.request.end", {
         traceId,
         toolName: name,
@@ -153,7 +173,7 @@ export function createOperationHandler(
         responseBytes,
         activeRequests: activeRequests - 1,
       });
-      return createBoundedToolResult(result);
+      return toolResult;
     } catch (error) {
       const durationMs = Date.now() - startedAt;
       const errorMessage = error instanceof Error ? error.message : String(error);

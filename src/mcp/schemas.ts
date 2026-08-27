@@ -73,6 +73,8 @@ export const toolSchemas = {
   list_directory: z.object({
     path: z.string().min(1),
     depth: z.number().int().nonnegative().optional().default(2),
+    cursor: z.string().regex(/^\d+$/).optional(),
+    limit: z.number().int().positive().max(1000).optional().default(200),
     origin: z.enum(["ui", "llm"]).optional(),
   }),
 
