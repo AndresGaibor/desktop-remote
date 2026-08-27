@@ -24,15 +24,17 @@ async function makeLog(options: { maxBytes?: number } = {}) {
 describe("RotatingDaemonLog", () => {
   test("redacts credentials in messages and nested structured data", async () => {
     const { directory, path, log } = await makeLog({ maxBytes: 8_192 });
+    const rawApiKey = "sk-live-do-not-log-0123456789";
 
     await log.warn(
-      "authentication failed at https://example.test/device?token=url-secret",
+      `authentication failed at https://example.test/device?token=url-secret api=${rawApiKey}`,
       {
         authorization: "Bearer abc.def.ghi",
         verificationCode: "ABCD-EFGH",
         nested: {
           password: "password-secret",
           authUrl: "https://example.test/device?token=query-secret",
+          diagnostic: `transport error ${rawApiKey}`,
         },
       },
     );
@@ -52,6 +54,7 @@ describe("RotatingDaemonLog", () => {
     expect(contents).not.toContain("password-secret");
     expect(contents).not.toContain("url-secret");
     expect(contents).not.toContain("query-secret");
+    expect(contents).not.toContain(rawApiKey);
     expect(await stat(path).then((result) => result.mode & 0o777)).toBe(0o600);
     expect((await readdir(directory)).filter((entry) => entry.startsWith("daemon.log"))).toEqual([
       "daemon.log",

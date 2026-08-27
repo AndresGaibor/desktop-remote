@@ -20,6 +20,7 @@ const SENSITIVE_KEYS = new Set([
 ]);
 
 const QUERY_PARAMETER_PATTERN = /([?&])([^=&#\s]+)=([^&#\s]*)/g;
+const API_KEY_PATTERN = /\bsk-[A-Za-z0-9_-]{8,}\b/gi;
 
 export function redactEvent(event: RuntimeEvent): RuntimeEvent {
   return redactValue(event) as RuntimeEvent;
@@ -49,6 +50,7 @@ export function redactText(value: string): string {
       isSensitiveKey(key) ? `${separator}${key}=[REDACTED]` : match,
     )
     .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [REDACTED]")
+    .replace(API_KEY_PATTERN, "[REDACTED]")
     .replace(/\b[A-Z0-9]{4}-[A-Z0-9]{4}\b/g, "[REDACTED]");
 }
 

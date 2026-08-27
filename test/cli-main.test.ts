@@ -23,6 +23,7 @@ function deps(state: "running" | "stopped" = "running") {
     mcpServe: async () => { calls.push("mcp"); },
     tunnelInit: async (args) => { calls.push(`tunnel-init:${args.join(" ")}`); },
     tunnelDoctor: async () => { calls.push("tunnel-doctor"); },
+    tunnelStatus: async () => { calls.push("tunnel-status"); },
     writeOut: (text) => output.push(text),
     writeErr: (text) => output.push(`ERR:${text}`),
   };
@@ -57,11 +58,12 @@ describe("runCli", () => {
     expect(await runCli(["mcp"], d)).toBe(0);
     expect(calls).toEqual(["mcp"]);
   });
-  test("supports tunnel init and doctor commands", async () => {
+  test("supports tunnel init, doctor, and status commands", async () => {
     const { d, calls } = deps();
     expect(await runCli(["tunnel", "init", "--tunnel-id", "t", "--profile", "p"], d)).toBe(0);
     expect(await runCli(["tunnel", "doctor"], d)).toBe(0);
-    expect(calls).toEqual(["tunnel-init:--tunnel-id t --profile p", "tunnel-doctor"]);
+    expect(await runCli(["tunnel", "status"], d)).toBe(0);
+    expect(calls).toEqual(["tunnel-init:--tunnel-id t --profile p", "tunnel-doctor", "tunnel-status"]);
   });
   test("requires tunnel init arguments", async () => {
     const { d, output } = deps();

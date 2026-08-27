@@ -5,7 +5,7 @@ describe("tunnel service definitions", () => {
   const command = "/opt/openai/tunnel-client";
   const profilePath = "/Users/alice/Library/Application Support/desktop-remote/tunnel.json";
 
-  test("generates a LaunchAgent with profile path, loopback health, and restart policy", () => {
+  test("generates a LaunchAgent with profile path, loopback health, restart policy, and persistent logs", () => {
     const plist = launchAgentTunnelPlist(command, profilePath);
 
     expect(plist).toContain(command);
@@ -14,6 +14,10 @@ describe("tunnel service definitions", () => {
     expect(plist).toContain("--health.url-file");
     expect(plist).toContain("tunnel-health.url");
     expect(plist).toContain("KeepAlive");
+    expect(plist).toContain("StandardOutPath");
+    expect(plist).toContain("StandardErrorPath");
+    expect(plist).toContain("logs/tunnel.stdout.log");
+    expect(plist).toContain("logs/tunnel.stderr.log");
     expect(plist).not.toContain("CONTROL_PLANE_API_KEY=");
     expect(plist).not.toContain("sk-live");
   });

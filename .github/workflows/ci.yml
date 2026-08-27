@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Install pinned tunnel-client
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive=/tmp/tunnel-client.zip
+          curl -fsSL -o "$archive" \
+            https://github.com/openai/tunnel-client/releases/download/v0.0.13/tunnel-client-v0.0.13-linux-amd64.zip
+          echo "e71f37b424126513173d5e3590687c0b5ccf6e8ef3fba900104d1f8c60dad906  $archive" | sha256sum -c -
+          rm -rf /tmp/tunnel-client-unpacked
+          mkdir -p /tmp/tunnel-client-unpacked "$HOME/.local/bin"
+          unzip -q "$archive" -d /tmp/tunnel-client-unpacked
+          binary="$(find /tmp/tunnel-client-unpacked -type f -name tunnel-client -print -quit)"
+          test -n "$binary"
+          install -m 0755 "$binary" "$HOME/.local/bin/tunnel-client"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Test
+        run: bun test
+      - name: Typecheck
+        run: bun run typecheck

@@ -1,4 +1,4 @@
-import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
+import { chmod, mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { parseTunnelProfile, serializeTunnelProfile } from "../tunnel/config";
 import type { DesktopRemotePaths } from "./paths";
@@ -27,6 +27,8 @@ export async function initializeTunnel(
   const profile = parseTunnelProfile(options.profile);
   if (profile.tunnelId !== options.tunnelId) throw new Error("--tunnel-id does not match tunnel profile");
   await mkdir(dirname(paths.tunnelProfilePath), { recursive: true, mode: 0o700 });
+  await mkdir(paths.logsDir, { recursive: true, mode: 0o700 });
+  await chmod(paths.logsDir, 0o700);
   await writeAtomic(paths.tunnelProfilePath, serializeTunnelProfile(profile, "yaml"));
 
   const command = options.tunnelCommand ?? Bun.which("tunnel-client") ?? join(paths.binDir, "tunnel-client");

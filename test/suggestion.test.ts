@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { join } from "node:path";
 import { extractPathFromEnoentError, getFuzzySuggestions, formatErrorHintAndSuggestions } from "../src/suggestion-engine";
 import { cleanToolResultText } from "../src/result-cleaner";
 
@@ -9,8 +10,7 @@ test("extracts file path from ENOENT error string", () => {
 });
 
 test("gets fuzzy suggestions for an existing directory", () => {
-  // Test with current directory package.json
-  const targetPath = "/Users/andresgaibor/code/javascript/desktop-remote/package.test.json";
+  const targetPath = join(process.cwd(), "package.test.json");
   const result = getFuzzySuggestions(targetPath);
 
   expect(result).not.toBeNull();
@@ -19,7 +19,7 @@ test("gets fuzzy suggestions for an existing directory", () => {
 });
 
 test("formats error hints and suggestions in cleanToolResultText", () => {
-  const errorText = "Error: ENOENT: no such file or directory, stat '/Users/andresgaibor/code/javascript/desktop-remote/nonexistent_file.ts'";
+  const errorText = `Error: ENOENT: no such file or directory, stat '${join(process.cwd(), "nonexistent_file.ts")}'`;
   const cleaned = cleanToolResultText(errorText);
 
   expect(cleaned.formattedText).toContain("SYSTEM HINT FOR AGENT");

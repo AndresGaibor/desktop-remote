@@ -1,16 +1,20 @@
 import { platform as nodePlatform } from "node:os";
 import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { DesktopRemoteIpcClient } from "../client/ipc-client";
 import { attachTui } from "../client/run-attach";
 import { parseDaemonDevArgs, runDaemon } from "../daemon/run-daemon";
 import { readDaemonLogs } from "../logging/read-logs";
 import { readJsonlEvents } from "../logging/jsonl";
+import { RotatingDaemonLog } from "../logging/rotating-log";
 import { readDesiredState } from "../platform/desired-state";
 import { DynamicUserServiceManager } from "../platform/dynamic-service-manager";
 import { installProductionArtifacts } from "../platform/install";
 import { getDesktopRemotePaths, type Platform } from "../platform/paths";
 import { doctorTunnel, initializeTunnel } from "../platform/tunnel-install";
+import { probeTunnelHealth } from "../platform/tunnel-health";
+import { tunnelHealthUrlFile } from "../platform/tunnel-services";
 import { runCommand } from "../platform/command-runner";
 import { ServiceController } from "../platform/service-controller";
 import { SessionStore } from "../session/store";
@@ -18,6 +22,7 @@ import type { TuiSessionSource } from "../client/session-source";
 import { runPipeMode } from "./run-pipe";
 import type { CliDependencies } from "./main";
 import { createMcpServer } from "../mcp/server";
+import { runMcpStdioServer } from "../mcp/run-stdio-server";
 import { OperationIpcClient } from "../client/operation-ipc-client";
 
 export function createDefaultCliDependencies(): CliDependencies {
@@ -59,7 +64,8 @@ export function createDefaultCliDependencies(): CliDependencies {
     },
     mcpServe: async () => {
       const server = createMcpServer(new OperationIpcClient(paths.socketPath));
-      await server.connect(new StdioServerTransport());
+      const logger = new RotatingDaemonLog(join(paths.logsDir, "mcp.log"));
+      await runMcpStdioServer({ server, transport: new StdioServerTransport(), logger });
     },
     tunnelInit: async (args) => {
       const tunnelId = optionValue(args, "--tunnel-id");
@@ -69,6 +75,10 @@ export function createDefaultCliDependencies(): CliDependencies {
     },
     tunnelDoctor: async () => {
       process.stdout.write(`${JSON.stringify(await doctorTunnel(paths), null, 2)}\n`);
+    },
+    tunnelStatus: async () => {
+      const status = await probeTunnelHealth(tunnelHealthUrlFile(paths.tunnelProfilePath));
+      process.stdout.write(`${JSON.stringify(status, null, 2)}\n`);
     },
     writeOut: (text) => process.stdout.write(`${text}\n`),
     writeErr: (text) => process.stderr.write(`desktop-remote: ${text}\n`),
