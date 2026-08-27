@@ -8,8 +8,10 @@ import { readExcelFile, writeExcelFile, type ExcelMatrix } from "../formats/exce
 import { writePdfFile } from "../formats/pdf";
 import { writeDocxFile } from "../formats/docx";
 import { ConfigStore } from "../config/store";
-import { tmpdir } from "node:os";
+import { MacAutomation, type CommandRunner } from "../macos/automation";
+import { tmpdir, platform } from "node:os";
 import { join } from "node:path";
+import { spawn } from "node:child_process";
 import { summarizeToolCall } from "../telemetry/tool-call-summary";
 
 export class DesktopOperationExecutor {
@@ -17,10 +19,36 @@ export class DesktopOperationExecutor {
   private readonly searches: SearchManager;
 
   private readonly configStore: ConfigStore;
+  private readonly macAutomation?: MacAutomation;
 
-  constructor(searches = new SearchManager(), configStore?: ConfigStore) {
+  constructor(searches = new SearchManager(), configStore?: ConfigStore, macAutomation?: MacAutomation) {
     this.searches = searches;
     this.configStore = configStore ?? new ConfigStore(join(tmpdir(), `desktop-remote-${process.pid}.json`));
+    this.macAutomation = macAutomation;
+  }
+
+  static createDefault(): DesktopOperationExecutor {
+    const currentPlatform = platform();
+    const runner: CommandRunner = (cmd, args, opts) =>
+      new Promise((resolve) => {
+        const child = spawn(cmd, [...args]);
+        let stdout = "";
+        let stderr = "";
+        child.stdout?.on("data", (d: Buffer) => (stdout += d.toString()));
+        child.stderr?.on("data", (d: Buffer) => (stderr += d.toString()));
+        if (opts?.input) {
+          child.stdin?.write(opts.input);
+          child.stdin?.end();
+        }
+        child.on("close", (code) =>
+          resolve({ exitCode: code ?? 0, stdout, stderr })
+        );
+      });
+    const mac =
+      currentPlatform === "darwin"
+        ? new MacAutomation(runner, { platform: currentPlatform })
+        : undefined;
+    return new DesktopOperationExecutor(new SearchManager(), undefined, mac);
   }
 
   async execute(
@@ -198,6 +226,64 @@ export class DesktopOperationExecutor {
       return this.searches.stop(requireString(input.sessionId, "sessionId"));
     }
     if (name === "list_searches") return this.searches.list();
+    if (this.macAutomation) {
+      if (name === "get_active_window") return this.macAutomation.getActiveWindow();
+      if (name === "list_windows") {
+        return this.macAutomation.listWindows();
+      }
+      if (name === "open_app") {
+        await this.macAutomation.openApp(requireString(input.bundleId, "bundleId"));
+        return { bundleId: input.bundleId, launched: true as const };
+      }
+      if (name === "focus_window") {
+        await this.macAutomation.focusWindow(requireString(input.bundleId, "bundleId"));
+        return { bundleId: input.bundleId, focused: true as const };
+      }
+      if (name === "screenshot") {
+        return this.macAutomation.screenshot({ path: requireString(input.path, "path") });
+      }
+      if (name === "get_clipboard") return this.macAutomation.clipboardGet();
+      if (name === "set_clipboard") {
+        return this.macAutomation.clipboardSet(requireString(input.text, "text"));
+      }
+      if (name === "type_text") {
+        const text = requireString(input.text, "text");
+        await this.macAutomation.typeText(text);
+        return { typed: true as const, characters: text.length };
+      }
+      if (name === "key_press") {
+        await this.macAutomation.keyPress(requireString(input.key, "key"));
+        return { key: requireString(input.key, "key"), pressed: true as const };
+      }
+      if (name === "click") {
+        const x = requirePositiveInteger(input.x, "x");
+        const y = requirePositiveInteger(input.y, "y");
+        await this.macAutomation.click(x, y);
+        return { x, y, clicked: true as const };
+      }
+      if (name === "double_click") {
+        const x = requirePositiveInteger(input.x, "x");
+        const y = requirePositiveInteger(input.y, "y");
+        await this.macAutomation.doubleClick(x, y);
+        return { x, y, clicked: true as const };
+      }
+      if (name === "scroll") {
+        const x = requirePositiveInteger(input.x, "x");
+        const y = requirePositiveInteger(input.y, "y");
+        const deltaX = requireNonNegativeInteger(input.deltaX, "deltaX");
+        const deltaY = requireNonNegativeInteger(input.deltaY, "deltaY");
+        await this.macAutomation.scroll(x, y, deltaX, deltaY);
+        return { x, y, scrolled: true as const };
+      }
+      if (name === "drag") {
+        const x1 = requirePositiveInteger(input.x1, "x1");
+        const y1 = requirePositiveInteger(input.y1, "y1");
+        const x2 = requirePositiveInteger(input.x2, "x2");
+        const y2 = requirePositiveInteger(input.y2, "y2");
+        await this.macAutomation.drag(x1, y1, x2, y2);
+        return { x1, y1, x2, y2, dragged: true as const };
+      }
+    }
     throw new Error(`Operation is not implemented: ${name}`);
   }
 }

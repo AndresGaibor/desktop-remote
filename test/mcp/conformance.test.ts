@@ -3,10 +3,10 @@ import { createToolDefinitions } from "../../src/mcp/tools";
 import { z } from "zod";
 
 describe("MCP tool conformance", () => {
-  const EXPECTED_COUNT = 24;
+  const EXPECTED_COUNT = 37;
 
   test("registers exactly 24 tools", () => {
-    const definitions = createToolDefinitions();
+    const definitions = createToolDefinitions("darwin");
     const actualCount = definitions.length;
 
     expect(
@@ -17,7 +17,7 @@ describe("MCP tool conformance", () => {
   });
 
   test("each tool has a non-empty name, description, and valid inputSchema", () => {
-    const definitions = createToolDefinitions();
+    const definitions = createToolDefinitions("darwin");
 
     for (const tool of definitions) {
       expect(tool.name, `Tool must have a non-empty name`).toBeTruthy();
@@ -33,7 +33,7 @@ describe("MCP tool conformance", () => {
   });
 
   test("no duplicate tool names", () => {
-    const definitions = createToolDefinitions();
+    const definitions = createToolDefinitions("darwin");
     const names = definitions.map((t) => t.name);
     const duplicates = names.filter((name, index) => names.indexOf(name) !== index);
 

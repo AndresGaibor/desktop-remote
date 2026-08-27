@@ -15,6 +15,6 @@ const server = createMcpServer({
     }
     return { name, input, ok: true };
   },
-});
+}, undefined, "linux");
 
 await server.connect(new StdioServerTransport());

@@ -1,9 +1,10 @@
-export type OperationCategory = "filesystem" | "search" | "process" | "operation";
+export type OperationCategory = "filesystem" | "search" | "process" | "operation" | "macos";
 
 export interface OperationDefinition {
   name: string;
   category: OperationCategory;
   destructive: boolean;
+  platform?: "darwin";
 }
 
 const OPERATIONS: readonly OperationDefinition[] = [
@@ -31,10 +32,26 @@ const OPERATIONS: readonly OperationDefinition[] = [
   operation("set_config_value", "operation", true),
   operation("get_usage_stats", "operation"),
   operation("get_recent_tool_calls", "operation"),
+  operation("get_active_window", "macos"),
+  operation("list_windows", "macos"),
+  operation("open_app", "macos", true),
+  operation("focus_window", "macos"),
+  operation("screenshot", "macos"),
+  operation("get_clipboard", "macos"),
+  operation("set_clipboard", "macos", true),
+  operation("type_text", "macos", true),
+  operation("key_press", "macos", true),
+  operation("click", "macos", true),
+  operation("double_click", "macos", true),
+  operation("scroll", "macos", true),
+  operation("drag", "macos", true),
 ];
 
-export function listOperations(): readonly OperationDefinition[] {
-  return OPERATIONS.map((operation) => ({ ...operation }));
+export function listOperations(platform?: string): readonly OperationDefinition[] {
+  if (!platform || platform === "darwin") {
+    return OPERATIONS.map((op) => ({ ...op }));
+  }
+  return OPERATIONS.filter((op) => !op.platform).map((op) => ({ ...op }));
 }
 
 export function getOperation(name: string): OperationDefinition | undefined {
@@ -42,6 +59,6 @@ export function getOperation(name: string): OperationDefinition | undefined {
   return operation ? { ...operation } : undefined;
 }
 
-function operation(name: string, category: OperationCategory, destructive = false): OperationDefinition {
-  return { name, category, destructive };
+function operation(name: string, category: OperationCategory, destructive = false, platform?: "darwin"): OperationDefinition {
+  return { name, category, destructive, platform };
 }

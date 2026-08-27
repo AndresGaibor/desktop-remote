@@ -110,4 +110,18 @@ export const outputSchemas = {
     command: z.string(),
   })),
   kill_process: z.object({ pid: z.number().int().positive(), killed: z.literal(true) }),
+
+  get_active_window: z.object({ app: z.string(), title: z.string() }),
+  list_windows: z.object({ windows: z.array(z.object({ app: z.string(), title: z.string() })), truncated: z.boolean() }),
+  open_app: z.object({ bundleId: z.string(), launched: z.literal(true) }),
+  focus_window: z.object({ bundleId: z.string(), focused: z.literal(true) }),
+  screenshot: z.object({ path: z.string(), format: z.literal("png"), captured: z.literal(true) }),
+  get_clipboard: z.object({ text: z.string(), bytes: z.number().int().nonnegative(), truncated: z.boolean() }),
+  set_clipboard: z.object({ set: z.literal(true), bytes: z.number().int().nonnegative() }),
+  type_text: z.object({ typed: z.literal(true), characters: z.number().int().nonnegative() }),
+  key_press: z.object({ key: z.string(), pressed: z.literal(true) }),
+  click: z.object({ x: z.number().int(), y: z.number().int(), clicked: z.literal(true) }),
+  double_click: z.object({ x: z.number().int(), y: z.number().int(), clicked: z.literal(true) }),
+  scroll: z.object({ x: z.number().int(), y: z.number().int(), scrolled: z.literal(true) }),
+  drag: z.object({ x1: z.number().int(), y1: z.number().int(), x2: z.number().int(), y2: z.number().int(), dragged: z.literal(true) }),
 } as const;
