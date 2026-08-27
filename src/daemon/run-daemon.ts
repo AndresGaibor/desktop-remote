@@ -9,6 +9,7 @@ import { DaemonIpcServer } from "./ipc-server";
 import { DesktopOperationExecutor } from "../core/executor";
 import { ConfigStore } from "../config/store";
 import { SearchManager } from "../search/manager";
+import { SelfHealingExecutor, DEFAULT_DEADLINE_MS } from "./self-healing";
 
 export type DaemonSignal = "SIGINT" | "SIGTERM";
 
@@ -94,8 +95,19 @@ export async function runDaemon(options: RunDaemonOptions = {}): Promise<void> {
     path: paths.historyPath,
     onWarning: (message) => { void logger.warn("daemon persistence warning", { message }); },
   });
-  const operationExecutor = new DesktopOperationExecutor(new SearchManager(), new ConfigStore(paths.configPath ?? join(paths.appSupportDir, "config.json")));
+  const baseExecutor = new DesktopOperationExecutor(new SearchManager(), new ConfigStore(paths.configPath ?? join(paths.appSupportDir, "config.json")));
+  const operationExecutor = new SelfHealingExecutor({
+    executor: baseExecutor,
+    deadlineMs: DEFAULT_DEADLINE_MS,
+    watchdogIntervalMs: 5_000,
+    now: options.now,
+  });
   const daemon = new DesktopRemoteDaemon({ supervisor, history, logger, operationExecutor });
+  operationExecutor.onWatchdogEvent((event) => {
+    if (event.type === "operation.hung") {
+      daemon.consumeWatchdogEvent(event);
+    }
+  });
   const ipc = options.ipcServer ?? new DaemonIpcServer({ source: daemon, paths });
   const signals = options.signals ?? PROCESS_SIGNALS;
   let resolveShutdown!: () => void;

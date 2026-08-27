@@ -19,6 +19,7 @@ export interface ToolCallRecord {
   startedAt: string;
   completedAt: string;
   durationMs: number;
+  traceId?: string;
 }
 
 export interface RecentToolCallFilter {

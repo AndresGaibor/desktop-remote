@@ -24,6 +24,9 @@ function deps(state: "running" | "stopped" = "running") {
     tunnelInit: async (args) => { calls.push(`tunnel-init:${args.join(" ")}`); },
     tunnelDoctor: async () => { calls.push("tunnel-doctor"); },
     tunnelStatus: async () => { calls.push("tunnel-status"); },
+    doctor: async (format) => { calls.push(`doctor:${format}`); },
+    update: async () => { calls.push("update"); },
+    rollback: async () => { calls.push("rollback"); },
     writeOut: (text) => output.push(text),
     writeErr: (text) => output.push(`ERR:${text}`),
   };

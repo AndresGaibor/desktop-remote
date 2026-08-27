@@ -7,6 +7,6 @@ import { createMcpServer } from "../src/mcp/server";
 import { getDesktopRemotePaths } from "../src/platform/paths";
 
 const paths = getDesktopRemotePaths();
-const server = createMcpServer(new OperationIpcClient(paths.socketPath));
 const logger = new RotatingDaemonLog(join(paths.logsDir, "mcp.log"));
+const server = createMcpServer(new OperationIpcClient(paths.socketPath), logger);
 await runMcpStdioServer({ server, transport: new StdioServerTransport(), logger });

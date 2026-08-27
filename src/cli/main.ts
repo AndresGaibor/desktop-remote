@@ -24,11 +24,14 @@ export interface CliDependencies {
   tunnelInit(args: string[]): Promise<void>;
   tunnelDoctor(): Promise<void>;
   tunnelStatus(): Promise<void>;
+  doctor(format: "json" | "text"): Promise<void>;
+  update(): Promise<void>;
+  rollback(): Promise<void>;
   writeOut(text: string): void;
   writeErr(text: string): void;
 }
 
-const ADMIN = new Set(["install", "start", "stop", "restart", "status", "logs", "attach", "replay", "daemon", "mcp", "tunnel"]);
+const ADMIN = new Set(["install", "start", "stop", "restart", "status", "logs", "attach", "replay", "daemon", "mcp", "tunnel", "doctor", "update", "rollback"]);
 
 export async function runCli(argv: string[], deps: CliDependencies): Promise<number> {
   const command = argv[0];
@@ -74,6 +77,18 @@ export async function runCli(argv: string[], deps: CliDependencies): Promise<num
         if (subcommand === "status") { await deps.tunnelStatus(); return 0; }
         throw new Error("tunnel requires init, doctor, or status");
       }
+      case "doctor": {
+        await deps.doctor(argv.includes("--json") ? "json" : "text");
+        return 0;
+      }
+      case "update": {
+        await deps.update();
+        return 0;
+      }
+      case "rollback": {
+        await deps.rollback();
+        return 0;
+      }
     }
     return 1;
   } catch (error) {
@@ -97,6 +112,9 @@ Commands:
   tunnel init --tunnel-id ID --profile FILE  Save profile and generate an optional tunnel service
   tunnel doctor                           Validate the local tunnel profile
   tunnel status                           Probe local tunnel liveness and readiness
+  doctor [--json]                         Run health diagnostics (--json for machine-readable output)
+  update     Build and promote new binary (with backup)
+  rollback   Restore previous binary from backup
 `;
 
 function requireOption(args: string[], name: string): string {

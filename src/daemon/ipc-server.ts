@@ -22,7 +22,7 @@ export interface IpcDaemonSource {
   status(): DaemonStatus;
   onEvent(listener: (event: RuntimeEvent) => void): () => void;
   stop(): Promise<void>;
-  execute(name: string, input: Record<string, unknown>): Promise<unknown>;
+  execute(name: string, input: Record<string, unknown>, options?: { traceId?: string }): Promise<unknown>;
 }
 
 export interface DaemonIpcServerOptions {
@@ -147,12 +147,13 @@ export class DaemonIpcServer {
         return;
       case "operation.request":
         try {
-          const result = await this.source.execute(message.name, message.input);
+          const result = await this.source.execute(message.name, message.input, { traceId: message.traceId });
           this.send(socket, {
             type: "operation.response",
             protocolVersion: PROTOCOL_VERSION,
             requestId: message.requestId,
             result,
+            ...(message.traceId !== undefined ? { traceId: message.traceId } : {}),
           });
         } catch (error) {
           this.send(socket, {
@@ -160,6 +161,7 @@ export class DaemonIpcServer {
             protocolVersion: PROTOCOL_VERSION,
             requestId: message.requestId,
             error: error instanceof Error ? error.message : String(error),
+            ...(message.traceId !== undefined ? { traceId: message.traceId } : {}),
           });
         }
         return;

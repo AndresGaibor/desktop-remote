@@ -19,7 +19,7 @@ export type ClientMessage =
   | (Versioned & { type: "snapshot.request" })
   | (Versioned & { type: "subscribe" })
   | (Versioned & { type: "status.request"; requestId: string })
-  | (Versioned & { type: "operation.request"; requestId: string; name: string; input: Record<string, unknown> })
+  | (Versioned & { type: "operation.request"; requestId: string; name: string; input: Record<string, unknown>; traceId?: string })
   | (Versioned & { type: "ping"; at: number })
   | (Versioned & { type: "detach" })
   | (Versioned & { type: "shutdown" });
@@ -39,7 +39,7 @@ export type ServerMessage =
   | (Versioned & { type: "snapshot.end" })
   | (Versioned & { type: "event"; event: RuntimeEvent })
   | (Versioned & { type: "status"; requestId: string; status: DaemonStatus })
-  | (Versioned & { type: "operation.response"; requestId: string; result?: unknown; error?: string })
+  | (Versioned & { type: "operation.response"; requestId: string; result?: unknown; error?: string; traceId?: string })
   | (Versioned & { type: "pong"; at: number })
   | (Versioned & { type: "already-attached"; attachedSince: number })
   | (Versioned & { type: "error"; code: string; message: string });
