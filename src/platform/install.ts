@@ -34,6 +34,7 @@ export async function installProductionArtifacts(
     const names = new Set([layout.cli, layout.daemon]);
     for (const name of names) await promoteExecutable(join(buildDir, name), join(paths.binDir, name));
     await writeAtomicJson(join(paths.binDir, "build-layout.json"), layout, 0o600);
+    await recordSchemaHashBaseline(paths);
     return layout;
   } finally {
     await rm(buildDir, { recursive: true, force: true }).catch(() => {});
@@ -70,6 +71,19 @@ async function promoteExecutable(source: string, destination: string): Promise<v
 
 function isEnoent(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "ENOENT";
+}
+
+async function recordSchemaHashBaseline(paths: DesktopRemotePaths): Promise<void> {
+  try {
+    const { computeToolSchemaHash } = await import("../config/schema-hash");
+    await writeAtomicJson(
+      join(paths.appSupportDir, "schema-hash.json"),
+      { hash: computeToolSchemaHash(), recordedAt: new Date().toISOString() },
+      0o600,
+    );
+  } catch {
+    // Schema hash baseline is best-effort; doctor tolerates a missing baseline.
+  }
 }
 
 export async function promoteBinaryWithBackup(
