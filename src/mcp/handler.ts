@@ -28,15 +28,36 @@ export interface McpToolResult {
   isError?: true;
 }
 
+export interface McpBackpressureSnapshot {
+  active: number;
+  activeLimit: number;
+  queued: number;
+  queueLimit: number;
+  rejected: number;
+  queueTimeouts: number;
+}
+
+export interface McpOperationRequestContext {
+  requesterId?: string;
+  signal?: AbortSignal;
+}
+
 export interface ConcurrencyOptions {
   maxConcurrentOperations?: number;
+  maxQueuedOperations?: number;
   queueTimeoutMs?: number;
   responseBudget?: ResponseBudget;
+}
+
+export interface OperationHandler {
+  (name: string, input: Record<string, unknown>, context?: McpOperationRequestContext): Promise<McpToolResult>;
+  getBackpressureSnapshot(): McpBackpressureSnapshot;
 }
 
 const REQUEST_WARN_THRESHOLD_MS = 5_000;
 const MAX_TEXT_CONTENT_BYTES = 16_000;
 const DEFAULT_MAX_CONCURRENT = 8;
+const DEFAULT_MAX_QUEUED = 64;
 const DEFAULT_QUEUE_TIMEOUT_MS = 30_000;
 
 export function createBoundedToolResult(result: unknown, responseBudget: ResponseBudget = {}): McpToolResult {
@@ -59,18 +80,25 @@ export function createOperationHandler(
   executor: OperationExecutor,
   logger?: McpRequestLogger,
   opts?: ConcurrencyOptions,
-) {
-  const maxConcurrent = opts?.maxConcurrentOperations ?? DEFAULT_MAX_CONCURRENT;
-  const queueTimeoutMs = opts?.queueTimeoutMs ?? DEFAULT_QUEUE_TIMEOUT_MS;
+): OperationHandler {
+  const maxConcurrent = Math.max(1, opts?.maxConcurrentOperations ?? DEFAULT_MAX_CONCURRENT);
+  const maxQueued = Math.max(0, opts?.maxQueuedOperations ?? DEFAULT_MAX_QUEUED);
+  const queueTimeoutMs = Math.max(1, opts?.queueTimeoutMs ?? DEFAULT_QUEUE_TIMEOUT_MS);
   const responseBudget = opts?.responseBudget ?? DEFAULT_RESPONSE_BUDGET;
 
   let activeRequests = 0;
+  let rejectedRequests = 0;
+  let queueTimeouts = 0;
+  let lastDequeuedRequester: string | undefined;
 
   type QueuedOperation = {
-    resolve: (started: boolean) => void;
+    id: string;
+    requesterId: string;
+    resolve: (result: AcquireResult) => void;
     deadlineTimer: ReturnType<typeof setTimeout>;
     started: boolean;
   };
+  type AcquireResult = "started" | "timeout" | "rejected";
 
   const queue: QueuedOperation[] = [];
 
@@ -83,58 +111,108 @@ export function createOperationHandler(
     }
   };
 
+  const snapshot = (): McpBackpressureSnapshot => ({
+    active: activeRequests,
+    activeLimit: maxConcurrent,
+    queued: queue.length,
+    queueLimit: maxQueued,
+    rejected: rejectedRequests,
+    queueTimeouts,
+  });
+
+  const logBackpressure = (reason: string) => {
+    safeLog("info", "mcp.backpressure.state", { ...snapshot(), reason });
+  };
+
+  function nextQueueIndex(): number {
+    if (queue.length === 0) return -1;
+    if (lastDequeuedRequester === undefined) return 0;
+    const alternate = queue.findIndex((item) => item.requesterId !== lastDequeuedRequester);
+    return alternate >= 0 ? alternate : 0;
+  }
+
   function startNextFromQueue() {
     while (activeRequests < maxConcurrent && queue.length > 0) {
-      const q = queue.shift()!;
-      clearTimeout(q.deadlineTimer);
-      if (!q.started) {
-        q.started = true;
-        activeRequests++;
-        q.resolve(true);
-      }
+      const index = nextQueueIndex();
+      if (index < 0) return;
+      const [queued] = queue.splice(index, 1);
+      if (!queued) return;
+      clearTimeout(queued.deadlineTimer);
+      if (queued.started) continue;
+      queued.started = true;
+      lastDequeuedRequester = queued.requesterId;
+      activeRequests++;
+      queued.resolve("started");
+      logBackpressure("dequeued");
     }
   }
 
   function releaseSlot() {
     activeRequests = Math.max(0, activeRequests - 1);
     startNextFromQueue();
+    logBackpressure("released");
   }
 
-  async function acquireSlot(deadlineMs: number): Promise<boolean> {
+  async function acquireSlot(deadlineMs: number, requesterId: string): Promise<AcquireResult> {
     if (activeRequests < maxConcurrent) {
       activeRequests++;
-      return true;
+      logBackpressure("acquired");
+      return "started";
     }
 
-    return new Promise<boolean>((resolve) => {
+    if (queue.length >= maxQueued) {
+      rejectedRequests++;
+      logBackpressure("rejected");
+      return "rejected";
+    }
+
+    return new Promise<AcquireResult>((resolve) => {
+      const id = crypto.randomUUID();
       const deadlineTimer = setTimeout(() => {
-        const idx = queue.findIndex((q) => q.resolve === resolve);
-        if (idx !== -1) {
-          queue.splice(idx, 1);
-          resolve(false);
-        }
+        const index = queue.findIndex((item) => item.id === id);
+        if (index === -1) return;
+        queue.splice(index, 1);
+        queueTimeouts++;
+        resolve("timeout");
+        logBackpressure("queue-timeout");
       }, deadlineMs);
 
-      const q: QueuedOperation = {
-        resolve,
-        deadlineTimer,
-        started: false,
-      };
-
-      queue.push(q);
+      queue.push({ id, requesterId, resolve, deadlineTimer, started: false });
+      logBackpressure("queued");
     });
   }
 
-  return async (name: string, input: Record<string, unknown>): Promise<McpToolResult> => {
+  const handler: OperationHandler = async (
+    name: string,
+    input: Record<string, unknown>,
+    context: McpOperationRequestContext = {},
+  ): Promise<McpToolResult> => {
     const traceId = crypto.randomUUID();
     const startedAt = Date.now();
-    const canStart = await acquireSlot(queueTimeoutMs);
+    const requesterId = context.requesterId?.trim() || "anonymous";
+    const acquireResult = await acquireSlot(queueTimeoutMs, requesterId);
 
-    if (!canStart) {
+    if (acquireResult === "rejected") {
+      safeLog("warn", "mcp.request.rejected", {
+        traceId,
+        method: "tools/call",
+        toolName: name,
+        ...snapshot(),
+        activeRequests,
+        reason: "queue-full",
+      });
+      return {
+        content: [{ type: "text", text: "MCP_BUSY: operation queue is full. Try again later." }],
+        isError: true,
+      };
+    }
+
+    if (acquireResult === "timeout") {
       safeLog("warn", "mcp.request.start", {
         traceId,
         method: "tools/call",
         toolName: name,
+        ...snapshot(),
         activeRequests,
         reason: "queue-timeout",
       });
@@ -148,6 +226,7 @@ export function createOperationHandler(
       traceId,
       method: "tools/call",
       toolName: name,
+      ...snapshot(),
       activeRequests,
     });
 
@@ -156,12 +235,13 @@ export function createOperationHandler(
         traceId,
         toolName: name,
         durationMs: Date.now() - startedAt,
+        ...snapshot(),
         activeRequests,
       });
     }, REQUEST_WARN_THRESHOLD_MS);
 
     try {
-      const result = await executor.execute(name, input, { traceId });
+      const result = await executor.execute(name, input, { traceId, signal: context.signal });
       const durationMs = Date.now() - startedAt;
       const toolResult = createBoundedToolResult(result, responseBudget);
       const responseBytes = toolResult.structuredContent === undefined
@@ -172,7 +252,7 @@ export function createOperationHandler(
         toolName: name,
         durationMs,
         responseBytes,
-        activeRequests: activeRequests - 1,
+        activeRequests: Math.max(0, activeRequests - 1),
       });
       return toolResult;
     } catch (error) {
@@ -185,7 +265,7 @@ export function createOperationHandler(
         traceId,
         toolName: name,
         durationMs,
-        activeRequests: activeRequests - 1,
+        activeRequests: Math.max(0, activeRequests - 1),
         error: errorMessage,
       });
       return {
@@ -197,4 +277,7 @@ export function createOperationHandler(
       releaseSlot();
     }
   };
+
+  handler.getBackpressureSnapshot = snapshot;
+  return handler;
 }

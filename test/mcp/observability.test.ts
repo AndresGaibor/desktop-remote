@@ -158,4 +158,26 @@ describe("MCP lifecycle observability", () => {
       await server.close();
     }
   });
+
+  test("usa sessionId para identificar requester sin persistir el valor crudo", async () => {
+    const logger = new MemoryLogger();
+    const server = createMcpServer({ execute: async () => validConfig }, logger);
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    serverTransport.sessionId = "session-super-sensitive";
+    await server.connect(serverTransport);
+    const client = new Client({ name: "session-privacy-test", version: "1.0.0" });
+
+    try {
+      await client.connect(clientTransport);
+      await client.callTool({ name: "get_config", arguments: {} });
+      const serialized = JSON.stringify(logger.events);
+      expect(serialized).not.toContain("session-super-sensitive");
+      const arrival = logger.events.find((event) => event.message === "mcp.lifecycle.request.arrival" && event.data?.method === "tools/call");
+      expect(arrival?.data?.requesterFingerprint).toMatch(/^[a-f0-9]{16}$/);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
 });

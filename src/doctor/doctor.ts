@@ -1,6 +1,7 @@
 import { redactText } from "../logging/redactor";
 import { describeSchemaHash } from "../config/schema-hash";
 import type { TunnelDiagnosticEndpoint, TunnelDiagnostics, TunnelSelectedDiagnostics } from "../platform/tunnel-health";
+import type { McpRuntimeDiagnostics } from "./mcp-runtime-diagnostics";
 
 const MAX_RECENT_ERRORS = 10;
 const MAX_DIAGNOSTIC_TEXT = 256;
@@ -49,6 +50,7 @@ export interface DoctorDependencies {
   mcpHash?: string;
   daemonHash?: string;
   expectedLayout?: DoctorExpectedLayout;
+  mcpRuntimeDiagnostics?: McpRuntimeDiagnostics;
 }
 
 export interface DoctorReport {
@@ -63,6 +65,8 @@ export interface DoctorReport {
     status?: string;
     pid?: number;
     channel?: { status?: string; pid?: number };
+    lifecycle?: McpRuntimeDiagnostics["lifecycle"];
+    backpressure?: McpRuntimeDiagnostics["backpressure"];
   };
   tunnel: {
     healthy: boolean;
@@ -179,6 +183,8 @@ function buildReport(deps: DoctorDependencies): DoctorReport {
       ...(mcpStatus?.status !== undefined ? { status: mcpStatus.status } : {}),
       ...(mcpStatus?.pid !== undefined ? { pid: mcpStatus.pid } : {}),
       ...(selected.channel ? { channel: selected.channel } : {}),
+      ...(deps.mcpRuntimeDiagnostics?.lifecycle ? { lifecycle: deps.mcpRuntimeDiagnostics.lifecycle } : {}),
+      ...(deps.mcpRuntimeDiagnostics?.backpressure ? { backpressure: deps.mcpRuntimeDiagnostics.backpressure } : {}),
     },
     tunnel: {
       healthy: tunnelHealthy,
@@ -229,6 +235,14 @@ function formatText(report: DoctorReport): string {
   if (report.mcp.status) lines.push(`  Status: ${report.mcp.status}`);
   if (report.mcp.pid !== undefined) lines.push(`  PID: ${report.mcp.pid}`);
   if (report.mcp.channel) lines.push(`  Channel: ${report.mcp.channel.status ?? "unknown"}`);
+  if (report.mcp.lifecycle) {
+    lines.push(`  Runtime instance: ${report.mcp.lifecycle.runtimeInstanceId}`);
+    if (report.mcp.lifecycle.lastToolsCallAt !== undefined) lines.push(`  Last tools/call: ${new Date(report.mcp.lifecycle.lastToolsCallAt).toISOString()}`);
+    if (report.mcp.lifecycle.lastToolsListAt !== undefined) lines.push(`  Last tools/list: ${new Date(report.mcp.lifecycle.lastToolsListAt).toISOString()}`);
+  }
+  if (report.mcp.backpressure) {
+    lines.push(`  Backpressure: active ${report.mcp.backpressure.active}/${report.mcp.backpressure.activeLimit}, queued ${report.mcp.backpressure.queued}/${report.mcp.backpressure.queueLimit}, rejected ${report.mcp.backpressure.rejected}, queue timeouts ${report.mcp.backpressure.queueTimeouts}`);
+  }
   lines.push("");
   lines.push("--- Tunnel ---");
   lines.push(`  Healthy: ${report.tunnel.healthy ? "yes" : "no"}`);

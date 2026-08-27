@@ -8,6 +8,14 @@ class MemoryLogger implements McpRequestLogger {
   error(message: string, data?: unknown): void { this.events.push({ level: "error", message, data }); }
 }
 
+async function waitUntil(predicate: () => boolean, timeoutMs = 2_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error("condition not reached before deadline");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 describe("MCP backpressure / concurrency limit", () => {
   test("hasta maxConcurrentOperations corren en paralelo; las excedentes se encolan", async () => {
     const DURATION = 80;
@@ -137,4 +145,84 @@ describe("MCP backpressure / concurrency limit", () => {
       expect((evt.data as { activeRequests: number }).activeRequests).toBeLessThanOrEqual(2);
     }
   });
+
+  test("rechaza inmediatamente cuando la cola MCP global alcanza su limite", async () => {
+    const logger = new MemoryLogger();
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    const executor = {
+      execute: async (name: string) => {
+        if (name === "first") await blocked;
+        return { ok: true };
+      },
+    };
+
+    const handler = createOperationHandler(executor, logger, {
+      maxConcurrentOperations: 1,
+      maxQueuedOperations: 1,
+      queueTimeoutMs: 5_000,
+    });
+
+    const first = handler("first", {});
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const second = handler("second", {});
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const third = await handler("third", {});
+
+    expect(third.isError).toBe(true);
+    expect(third.content[0]!.text).toMatch(/MCP_BUSY|queue.*full|busy/i);
+    expect(handler.getBackpressureSnapshot()).toMatchObject({
+      active: 1,
+      activeLimit: 1,
+      queued: 1,
+      queueLimit: 1,
+      rejected: 1,
+    });
+
+    release();
+    await Promise.all([first, second]);
+    expect(handler.getBackpressureSnapshot()).toMatchObject({ active: 0, queued: 0, rejected: 1 });
+  });
+
+  test("round-robin evita que un requester monopolice la cola cuando sessionId esta disponible", async () => {
+    const starts: string[] = [];
+    const releases = new Map<string, () => void>();
+    const executor = {
+      execute: async (name: string) => {
+        starts.push(name);
+        await new Promise<void>((resolve) => { releases.set(name, resolve); });
+        return { ok: true };
+      },
+    };
+    const handler = createOperationHandler(executor, undefined, {
+      maxConcurrentOperations: 1,
+      maxQueuedOperations: 8,
+      queueTimeoutMs: 5_000,
+    });
+
+    const seed = handler("seed", {}, { requesterId: "seed" });
+    await waitUntil(() => starts.includes("seed"));
+    const a1 = handler("a1", {}, { requesterId: "A" });
+    const a2 = handler("a2", {}, { requesterId: "A" });
+    const b1 = handler("b1", {}, { requesterId: "B" });
+    await waitUntil(() => handler.getBackpressureSnapshot().queued === 3);
+
+    releases.get("seed")!();
+    await seed;
+    await waitUntil(() => starts.length === 2);
+    expect(starts[1]).toBe("a1");
+
+    releases.get("a1")!();
+    await a1;
+    await waitUntil(() => starts.length === 3);
+    expect(starts[2]).toBe("b1");
+
+    releases.get("b1")!();
+    await b1;
+    await waitUntil(() => starts.length === 4);
+    expect(starts[3]).toBe("a2");
+    releases.get("a2")!();
+    await a2;
+  });
+
 });

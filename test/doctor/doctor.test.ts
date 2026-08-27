@@ -235,4 +235,52 @@ describe("runDoctor", () => {
     expect(report.historicalWarnings ?? []).toHaveLength(10);
     expect((report.historicalWarnings ?? []).every((entry) => entry.length <= 256)).toBe(true);
   });
+
+  test("expone lifecycle y backpressure MCP para localizar la frontera del fallo", async () => {
+    const report = await runDoctor("json", {
+      daemonAlive: true,
+      daemonPid: 12345,
+      mcpReachable: true,
+      tunnelHealthy: true,
+      tunnelDetail: "ready",
+      diskFreeBytes: 1_000_000n,
+      diskTotalBytes: 100_000_000n,
+      recentErrors: [],
+      schemaHashCurrent: "abc123",
+      schemaHashStored: "abc123",
+      configValid: true,
+      configErrors: [],
+      mcpRuntimeDiagnostics: {
+        lifecycle: {
+          runtimeInstanceId: "runtime-1",
+          connectionId: "runtime-1:1",
+          currentSchemaHash: "abc123",
+          initializeCount: 1,
+          toolsListCount: 2,
+          toolsCallCount: 10,
+          toolsCallSuccessCount: 9,
+          toolsCallFailureCount: 1,
+          activeRequests: 0,
+          lastInitializeAt: 1000,
+          lastToolsListAt: 2000,
+          lastToolsCallAt: 3000,
+          observedAt: "2026-08-27T19:10:02.000Z",
+        },
+        backpressure: {
+          active: 0,
+          activeLimit: 8,
+          queued: 0,
+          queueLimit: 64,
+          rejected: 2,
+          queueTimeouts: 1,
+          observedAt: "2026-08-27T19:10:02.000Z",
+        },
+      },
+    });
+
+    expect(report.mcp.lifecycle?.lastToolsCallAt).toBe(3000);
+    expect(report.mcp.lifecycle?.toolsCallSuccessCount).toBe(9);
+    expect(report.mcp.backpressure).toMatchObject({ active: 0, activeLimit: 8, queued: 0, queueLimit: 64, rejected: 2 });
+  });
+
 });

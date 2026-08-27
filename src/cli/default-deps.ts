@@ -30,6 +30,7 @@ import { createSupportBundle } from "../doctor/support-bundle";
 import { computeToolSchemaHash } from "../config/schema-hash";
 import { computeMcpToolCatalogHash, createToolDefinitions } from "../mcp/tools";
 import { ConfigStore, defaultConfig } from "../config/store";
+import { readMcpRuntimeDiagnostics } from "../doctor/mcp-runtime-diagnostics";
 
 export function createDefaultCliDependencies(): CliDependencies {
   const paths = getDesktopRemotePaths();
@@ -177,7 +178,7 @@ async function collectDoctorData(
   paths: ReturnType<typeof getDesktopRemotePaths>,
   serviceManager?: { status(): Promise<DoctorServiceMetadata> },
 ): Promise<DoctorDependencies> {
-  const [daemonStatus, tunnelDiagnostics, diskSpace, recentErrors, logPaths, schemaHashInfo, configValidation, buildMetadata, serviceStatus] = await Promise.all([
+  const [daemonStatus, tunnelDiagnostics, diskSpace, recentErrors, logPaths, schemaHashInfo, configValidation, buildMetadata, serviceStatus, mcpRuntimeDiagnostics] = await Promise.all([
     checkDaemonAlive(paths),
     checkTunnelDiagnostics(paths),
     checkDiskSpace(paths.appSupportDir),
@@ -187,6 +188,11 @@ async function collectDoctorData(
     validateConfig(paths),
     readBuildMetadata(paths),
     serviceManager ? readServiceStatus(serviceManager) : Promise.resolve(undefined),
+    readMcpRuntimeDiagnostics([
+      join(paths.logsDir, "mcp.log.2"),
+      join(paths.logsDir, "mcp.log.1"),
+      join(paths.logsDir, "mcp.log"),
+    ]),
   ]);
 
   return {
@@ -207,6 +213,7 @@ async function collectDoctorData(
     configErrors: configValidation.errors,
     buildMetadata,
     serviceStatus,
+    mcpRuntimeDiagnostics,
   };
 }
 
