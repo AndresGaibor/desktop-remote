@@ -19,10 +19,34 @@ const config = z.object({
 });
 
 const processStatus = z.enum(["running", "completed", "failed"]);
+const processCursor = z.object({
+  offset: z.number().int().nonnegative(),
+  end: z.number().int().nonnegative(),
+  nextOffset: z.number().int().nonnegative(),
+  truncated: z.boolean(),
+});
 const processOutput = z.object({
   id: z.string(),
-  pid: z.number().int().positive().optional(),
-  status: processStatus,  output: z.string(),
+  pid: z.number().int().positive(),
+  cwd: z.string(),
+  status: processStatus,
+  output: z.string(),
+  stdout: z.string(),
+  stderr: z.string(),
+  outputBytes: z.number().int().nonnegative(),
+  outputRetainedBytes: z.number().int().nonnegative(),
+  stdoutBytes: z.number().int().nonnegative(),
+  stdoutRetainedBytes: z.number().int().nonnegative(),
+  stderrBytes: z.number().int().nonnegative(),
+  stderrRetainedBytes: z.number().int().nonnegative(),
+  outputTruncated: z.boolean(),
+  truncated: z.boolean(),
+  stdoutTruncated: z.boolean(),
+  stderrTruncated: z.boolean(),
+  outputCursor: processCursor,
+  stdoutCursor: processCursor,
+  stderrCursor: processCursor,
+  timedOut: z.boolean().optional(),
   exitCode: z.number().int().optional(),
 });
 
@@ -103,16 +127,11 @@ export const outputSchemas = {
   stop_search: undefined,
   list_searches: z.array(z.object({ id: z.string(), status: z.string() })),
 
-  start_process: z.object({ id: z.string(), pid: z.number().int().positive() }),
-  read_process_output: processOutput,  interact_with_process: processOutput,
+  start_process: z.object({ id: z.string(), pid: z.number().int().positive(), cwd: z.string() }),
+  read_process_output: processOutput,
+  interact_with_process: processOutput,
   force_terminate: z.object({ pid: z.number().int().positive(), terminated: z.literal(true) }),
-  list_sessions: z.array(z.object({
-    id: z.string(),
-    pid: z.number().int().positive(),
-    status: processStatus,
-    output: z.string(),
-    exitCode: z.number().int().optional(),
-  })),
+  list_sessions: z.array(processOutput),
   list_processes: z.array(z.object({
     pid: z.number().int().positive(),
     ppid: z.number().int().nonnegative(),

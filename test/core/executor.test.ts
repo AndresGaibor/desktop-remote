@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DesktopOperationExecutor } from "../../src/core/executor";
@@ -83,6 +83,22 @@ describe("DesktopOperationExecutor", () => {
     expect(started).toMatchObject({ id: expect.any(String), pid: expect.any(Number) });
     const output = await executor.execute("read_process_output", { id });
     expect(output).toMatchObject({ status: "completed", output: "ready\n", exitCode: 0 });
+  });
+
+  test("dispatches cwd and env overrides for managed processes", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "desktop-remote-process-cwd-"));
+    directories.push(directory);
+    const executor = new DesktopOperationExecutor();
+    const started = await executor.execute("start_process", {
+      command: [process.execPath, "-e", "process.stdout.write(process.cwd() + ':' + process.env.EXECUTOR_MARKER)"],
+      cwd: directory,
+      env: { EXECUTOR_MARKER: "configured" },
+      timeout_ms: 5000,
+    }) as { id: string };
+
+    const resolved = await realpath(directory);
+    await expect(executor.execute("read_process_output", { id: started.id }))
+      .resolves.toMatchObject({ stdout: `${resolved}:configured`, cwd: directory });
   });
 
   test("executes search lifecycle operations through SearchManager", async () => {
