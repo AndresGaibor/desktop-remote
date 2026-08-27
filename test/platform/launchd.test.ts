@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { LaunchdManager } from "../../src/platform/launchd";
+import { LaunchdManager, type LaunchdClock } from "../../src/platform/launchd";
 import { makeTestPaths } from "../helpers/desktop-remote-paths";
 
 describe("LaunchdManager", () => {
@@ -12,6 +12,9 @@ describe("LaunchdManager", () => {
     const calls: string[][] = [];
     const run = async (command: string, args: string[]) => {
       calls.push([command, ...args]);
+      if (args[0] === "bootout") {
+        return { exitCode: 0, stdout: "", stderr: "could not find" };
+      }
       return { exitCode: 0, stdout: "", stderr: "" };
     };
     const manager = new LaunchdManager({ paths, run, uid: 501, daemonCommand: "/opt/dr/desktop-remote-daemon" });
@@ -35,21 +38,96 @@ describe("LaunchdManager", () => {
     expect(calls).toContainEqual(["launchctl", "bootout", "gui/501/com.desktop-remote.daemon"]);
   });
 
+  test("start waits for launchd teardown when bootout succeeds but service remains loaded", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "dr-launchd-teardown-"));
+    const paths = makeTestPaths(dir);
+    const calls: string[][] = [];
+    let printCallCount = 0;
+    let tickMs = 0;
+
+    const clock: LaunchdClock = {
+      now: () => tickMs,
+      sleep: async (ms: number) => { tickMs += ms; },
+    };
+
+    const run = async (command: string, args: string[]) => {
+      calls.push([command, ...args]);
+      if (args[0] === "bootout") {
+        return { exitCode: 0, stdout: "", stderr: "" };
+      }
+      if (args[0] === "print") {
+        printCallCount++;
+        if (printCallCount < 3) {
+          return { exitCode: 0, stdout: "state = running\npid = 12345\n", stderr: "" };
+        }
+        return { exitCode: 1, stdout: "", stderr: "could not find" };
+      }
+      if (args[0] === "bootstrap") {
+        return { exitCode: 0, stdout: "", stderr: "" };
+      }
+      return { exitCode: 0, stdout: "", stderr: "" };
+    };
+
+    const manager = new LaunchdManager({ paths, run, uid: 501, daemonCommand: "/opt/dr/desktop-remote", clock });
+    await manager.start();
+
+    const printCalls = calls.filter((c) => c[1] === "print");
+    expect(printCalls.length).toBeGreaterThanOrEqual(1);
+    const bootstrapIdx = calls.findIndex((c) => c[1] === "bootstrap");
+    const lastPrintIdx = calls.map((c) => c[1]).lastIndexOf("print");
+    expect(lastPrintIdx).toBeLessThan(bootstrapIdx);
+    expect(calls).toContainEqual(["launchctl", "enable", "gui/501/com.desktop-remote.daemon"]);
+    expect(calls).toContainEqual(["launchctl", "kickstart", "-k", "gui/501/com.desktop-remote.daemon"]);
+  });
+
+  test("start does not wait when bootout indicates service already gone", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "dr-launchd-notloaded-"));
+    const paths = makeTestPaths(dir);
+    const calls: string[][] = [];
+
+    const run = async (command: string, args: string[]) => {
+      calls.push([command, ...args]);
+      if (args[0] === "bootout") {
+        return { exitCode: 0, stdout: "", stderr: "could not find" };
+      }
+      if (args[0] === "print") {
+        return { exitCode: 1, stdout: "", stderr: "could not find" };
+      }
+      if (args[0] === "bootstrap") {
+        return { exitCode: 0, stdout: "", stderr: "" };
+      }
+      return { exitCode: 0, stdout: "", stderr: "" };
+    };
+
+    const manager = new LaunchdManager({ paths, run, uid: 501, daemonCommand: "/opt/dr/desktop-remote" });
+    await manager.start();
+
+    const printCalls = calls.filter((c) => c[1] === "print");
+    expect(printCalls.length).toBe(0);
+    expect(calls).toContainEqual(["launchctl", "bootstrap", "gui/501", paths.launchAgentPath!]);
+  });
+
   test("treats a generic bootstrap error as fatal", async () => {
     const dir = await mkdtemp(join(tmpdir(), "dr-launchd-loaded-"));
     const paths = makeTestPaths(dir);
     const calls: string[][] = [];
+    let tickMs = 0;
+    const clock: LaunchdClock = {
+      now: () => tickMs,
+      sleep: async (ms: number) => { tickMs += ms; },
+    };
     const run = async (command: string, args: string[]) => {
       calls.push([command, ...args]);
       if (args[0] === "bootstrap") return { exitCode: 5, stdout: "", stderr: "Bootstrap failed: 5: Input/output error" };
       if (args[0] === "print") return { exitCode: 0, stdout: "state = running\n", stderr: "" };
       return { exitCode: 0, stdout: "", stderr: "" };
     };
-    const manager = new LaunchdManager({ paths, run, uid: 501, daemonCommand: "/opt/dr/desktop-remote" });
+    const manager = new LaunchdManager({ paths, run, uid: 501, daemonCommand: "/opt/dr/desktop-remote", clock });
 
     await expect(manager.start()).rejects.toThrow("launchctl bootstrap failed");
 
-    expect(calls).not.toContainEqual(["launchctl", "print", "gui/501/com.desktop-remote.daemon"]);
+    const printCalls = calls.filter((c) => c[1] === "print");
+    expect(printCalls.length).toBeGreaterThan(0);
     expect(calls).not.toContainEqual(["launchctl", "kickstart", "-k", "gui/501/com.desktop-remote.daemon"]);
   });
 
@@ -62,6 +140,7 @@ describe("LaunchdManager", () => {
       calls.push({ args });
       if (args[0] === "bootout") {
         activeDefinition = undefined;
+        return { exitCode: 0, stdout: "", stderr: "could not find" };
       }
       if (args[0] === "bootstrap") {
         const plist = await readFile(args[2]!, "utf8");

@@ -5,16 +5,33 @@ import { requireSuccess, type CommandRunner } from "./command-runner";
 
 export const LAUNCHD_LABEL = "com.desktop-remote.daemon";
 
+export interface LaunchdClock {
+  now(): number;
+  sleep(ms: number): Promise<void>;
+}
+
+export const RealClock: LaunchdClock = {
+  now: () => Date.now(),
+  async sleep(ms: number) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  },
+};
+
 export interface LaunchdManagerOptions {
   paths: DesktopRemotePaths;
   run: CommandRunner;
   uid: number;
   daemonCommand: string;
   daemonArgs?: string[];
+  clock?: LaunchdClock;
 }
 
 export class LaunchdManager {
-  constructor(private readonly options: LaunchdManagerOptions) {}
+  private readonly _clock: LaunchdClock;
+
+  constructor(private readonly options: LaunchdManagerOptions) {
+    this._clock = options.clock ?? RealClock;
+  }
 
   async install(): Promise<void> {
     const path = this.requirePath();
@@ -28,9 +45,24 @@ export class LaunchdManager {
     const service = `${domain}/${LAUNCHD_LABEL}`;
     const bootout = await this.options.run("launchctl", ["bootout", service]);
     if (bootout.exitCode !== 0 && !isMissingService(bootout.stdout, bootout.stderr)) requireSuccess(bootout, "launchctl bootout");
+    if (!isMissingService(bootout.stdout, bootout.stderr)) {
+      await this.waitForUnloaded(service);
+    }
     requireSuccess(await this.options.run("launchctl", ["bootstrap", domain, this.requirePath()]), "launchctl bootstrap");
     requireSuccess(await this.options.run("launchctl", ["enable", service]), "launchctl enable");
     requireSuccess(await this.options.run("launchctl", ["kickstart", "-k", service]), "launchctl kickstart");
+  }
+
+  private async waitForUnloaded(service: string): Promise<void> {
+    const timeoutMs = 10_000;
+    const intervalMs = 250;
+    const deadline = this._clock.now() + timeoutMs;
+    while (this._clock.now() < deadline) {
+      const printResult = await this.options.run("launchctl", ["print", service]);
+      if (printResult.exitCode !== 0 && isMissingService(printResult.stdout, printResult.stderr)) return;
+      if (this._clock.now() >= deadline) break;
+      await this._clock.sleep(intervalMs);
+    }
   }
 
   async restart(): Promise<void> {
