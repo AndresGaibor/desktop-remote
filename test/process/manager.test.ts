@@ -155,13 +155,16 @@ describe("ProcessManager lifecycle y retención", () => {
     if (process.platform === "win32") return;
     const directory = await mkdtemp(join(tmpdir(), "desktop-remote-process-group-"));
     directories.push(directory);
+    const childReady = join(directory, "child-ready");
     const marker = join(directory, "child-terminated");
-    const childCode = `process.on('SIGTERM', () => { require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'terminated'); process.exit(0) }); setInterval(() => {}, 10000)`;
-    const parentCode = `const { spawn } = require('node:child_process'); spawn(process.execPath, ['-e', ${JSON.stringify(childCode)}], { stdio: 'ignore' }); process.stdout.write('ready'); process.on('SIGTERM', () => {}); setInterval(() => {}, 10000)`;
+    const childCode = `require('node:fs').writeFileSync(${JSON.stringify(childReady)}, 'ready'); process.on('SIGTERM', () => { require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'terminated'); process.exit(0) }); setInterval(() => {}, 10000)`;
+    const parentCode = `const { spawn } = require('node:child_process'); spawn(process.execPath, ['-e', ${JSON.stringify(childCode)}], { stdio: 'ignore', detached: false }); process.stdout.write('ready'); process.on('SIGTERM', () => {}); setInterval(() => {}, 10000)`;
     const manager = new ProcessManager({ gracefulTerminateMs: 100 });
     const started = await manager.start([process.execPath, "-e", parentCode]);
 
     await manager.readOutput(started.id, { timeout_ms: 1000 });
+    await Bun.sleep(50);
+    await expect(readFile(childReady, "utf8")).resolves.toBe("ready");
     await manager.terminate(started.pid);
     await expect(readFile(marker, "utf8")).resolves.toBe("terminated");
   });
