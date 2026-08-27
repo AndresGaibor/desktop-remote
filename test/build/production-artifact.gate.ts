@@ -66,6 +66,66 @@ describe("production artifact regression gate", () => {
       await rm(isolatedRoot, { recursive: true, force: true });
     }
   }, 120_000);
+
+  test("start_process and read_process_output via MCP from built artifact", async () => {
+    const isolatedRoot = await mkdtemp(join(tmpdir(), "dr-production-artifact-gate-mcp-"));
+    const isolatedDirectories = ["home", "config", "cache", "state", "runtime", "tmp"];
+    await Promise.all(isolatedDirectories.map((directory) => mkdir(join(isolatedRoot, directory), { mode: 0o700 })));
+    const env: Record<string, string> = {
+      HOME: process.env.HOME ?? "",
+      PATH: process.env.PATH ?? "",
+      TMPDIR: join(isolatedRoot, "tmp"),
+      XDG_CACHE_HOME: join(isolatedRoot, "cache"),
+      XDG_CONFIG_HOME: join(isolatedRoot, "config"),
+      XDG_RUNTIME_DIR: join(isolatedRoot, "runtime"),
+      XDG_STATE_HOME: join(isolatedRoot, "state"),
+    };
+
+    let client: Client | undefined;
+
+    try {
+      const outputDir = join(isolatedRoot, "build");
+      const layout = await buildProduction({
+        rootDir: repoRoot,
+        outDir: outputDir,
+        bunPath: process.execPath,
+      });
+      const artifact = join(outputDir, layout.cli);
+
+      const transport = new StdioClientTransport({
+        command: artifact,
+        args: ["mcp"],
+        cwd: repoRoot,
+        env,
+        stderr: "pipe",
+      });
+      client = new Client({ name: "desktop-remote-production-artifact-gate-mcp", version: "1.0.0" });
+
+      try {
+        await client.connect(transport, { timeout: 5_000 });
+
+        const started = await client.callTool({ name: "start_process", arguments: { command: "printf contract-ok", cwd: "/" } });
+        expect(started.isError).not.toBe(true);
+        const startedContent = started.structuredContent as { id: string; pid: number; cwd: string };
+        expect(typeof startedContent.pid).toBe("number");
+        expect(startedContent.pid).toBeGreaterThan(0);
+        expect(typeof startedContent.id).toBe("string");
+
+        await new Promise((resolve) => setTimeout(resolve, 500));
+
+        const output = await client.callTool({ name: "read_process_output", arguments: { pid: startedContent.pid } });
+        expect(output.isError).not.toBe(true);
+        const outputContent = output.structuredContent as { stdout: string; status: string };
+        expect(typeof outputContent.stdout).toBe("string");
+        expect(outputContent.stdout).toContain("contract-ok");
+        expect(["completed", "running"]).toContain(outputContent.status);
+      } finally {
+        await client.close();
+      }
+    } finally {
+      await rm(isolatedRoot, { recursive: true, force: true });
+    }
+  }, 180_000);
 });
 
 function createIsolatedEnvironment(root: string): Record<string, string> {
