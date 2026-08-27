@@ -6,6 +6,9 @@ import { DesktopRemoteDaemon } from "../../src/daemon/daemon";
 import { DaemonSupervisor, type ManagedRuntime } from "../../src/daemon/supervisor";
 import type { RuntimeEvent } from "../../src/runtime/events";
 import { HistoryStore } from "../../src/daemon/history-store";
+import { DesktopOperationExecutor } from "../../src/core/executor";
+import { OperationScheduler } from "../../src/core/operation-scheduler";
+import { SearchManager } from "../../src/search/manager";
 
 class CrashRuntime implements ManagedRuntime {
   pid = 10;
@@ -18,6 +21,40 @@ class CrashRuntime implements ManagedRuntime {
 }
 
 describe("fault injection", () => {
+  test("a hung heavy daemon operation does not block an independent light operation", async () => {
+    const searchGate = deferred<{ id: string; sessionId: string; status: "completed" }>();
+    const slowSearch = {
+      start: async () => searchGate.promise,
+    } as unknown as SearchManager;
+    const scheduler = new OperationScheduler({
+      concurrency: { light: 1, heavy: 1, process: 1, document: 1 },
+      maxQueueSize: 2,
+      maxQueueSizeByClass: { light: 2, heavy: 2, process: 2, document: 2 },
+    });
+    const supervisor = new DaemonSupervisor({ createRuntime: () => new CrashRuntime(), sleep: async () => {} });
+    const operationExecutor = new DesktopOperationExecutor(slowSearch, undefined, scheduler);
+    const daemon = new DesktopRemoteDaemon({ supervisor, operationExecutor });
+    await daemon.start();
+
+    const heavy = daemon.execute("start_search", {
+      path: "/tmp",
+      pattern: "needle",
+      searchType: "content",
+    });
+    await Bun.sleep(0);
+
+    await expect(daemon.execute("get_config", {})).resolves.toMatchObject({
+      defaultShell: expect.any(String),
+    });
+    expect(operationExecutor.getSchedulerSnapshot()).toMatchObject({
+      active: { heavy: 1, light: 0 },
+    });
+
+    searchGate.resolve({ id: "search-1", sessionId: "search-1", status: "completed" });
+    await heavy;
+    await daemon.stop();
+  });
+
   test("repeated child crashes converge to degraded without overlapping children", async () => {
     const runtimes: CrashRuntime[] = [];
     const sleeps: Array<() => void> = [];
@@ -65,3 +102,11 @@ describe("fault injection", () => {
     await daemon.stop();
   });
 });
+
+function deferred<T = void>() {
+  let resolve!: (value?: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((nextResolve) => {
+    resolve = (value) => nextResolve(value as T | PromiseLike<T>);
+  });
+  return { promise, resolve };
+}
