@@ -11,22 +11,50 @@ import { ConfigStore } from "../config/store";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { summarizeToolCall } from "../telemetry/tool-call-summary";
+import {
+  classifyOperation,
+  OperationScheduler,
+  type OperationScheduleOptions,
+  type OperationSchedulerSnapshot,
+} from "./operation-scheduler";
+
+export interface DesktopOperationExecutionOptions extends OperationScheduleOptions {
+  traceId?: string;
+}
 
 export class DesktopOperationExecutor {
   private readonly processes = new ProcessManager();
   private readonly searches: SearchManager;
 
   private readonly configStore: ConfigStore;
+  private readonly scheduler: OperationScheduler;
 
-  constructor(searches = new SearchManager(), configStore?: ConfigStore) {
+  constructor(searches = new SearchManager(), configStore?: ConfigStore, scheduler = new OperationScheduler()) {
     this.searches = searches;
     this.configStore = configStore ?? new ConfigStore(join(tmpdir(), `desktop-remote-${process.pid}.json`));
+    this.scheduler = scheduler;
   }
 
   async execute(
     name: string,
     input: Record<string, unknown>,
-    options?: { traceId?: string },
+    options?: DesktopOperationExecutionOptions,
+  ): Promise<unknown> {
+    return this.scheduler.run(
+      classifyOperation(name, input),
+      () => this.executeScheduled(name, input, options),
+      options,
+    );
+  }
+
+  getSchedulerSnapshot(): OperationSchedulerSnapshot {
+    return this.scheduler.snapshot();
+  }
+
+  private async executeScheduled(
+    name: string,
+    input: Record<string, unknown>,
+    options?: DesktopOperationExecutionOptions,
   ): Promise<unknown> {
     if (name === "get_config") return this.configStore.getConfig();
     if (name === "set_config_value") return this.configStore.setConfigValue(requireString(input.key, "key"), input.value);
